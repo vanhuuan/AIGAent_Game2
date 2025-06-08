@@ -1,0 +1,13 @@
+numpy==2.2.6
+pandas==2.2.3
+pillow==11.2.1
+pydantic==2.11.1
+pydantic-ai==0.2.12
+pydantic-graph===0.2.12
+pygame==2.6.1
+pygame-widgets==1.2.1
+python-dotenv==1.0.1
+jupyterlab==4.4.0
+logfire==3.14.0
+mermaid-python==0.1
+rich==14.0.0
