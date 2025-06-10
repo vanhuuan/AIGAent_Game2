@@ -1,6 +1,7 @@
 from dataclasses import dataclass
 import time
 import random
+import logging
 from pydantic_graph import BaseNode, End, Graph, GraphRunContext
 from game_client import GameClient
 from models.tasks import WinCondition, Position
@@ -20,17 +21,20 @@ class GameState:
     def __post_init__(self):
         self.frontier = []
         self.visited = set()
+        self.logger = logging.getLogger("agent_logger")
 
 @dataclass
 class CreateGame(BaseNode[GameState]):  
     """Initial node in the workflow"""
     async def run(self, ctx: GraphRunContext[GameState]) -> 'TakeMission':
+        ctx.state.logger.info("Workflow: CreateGame -> TakeMission")
         return TakeMission()
 
 @dataclass
 class TakeMission(BaseNode[GameState]):
     """Parse the mission and identify resource requirements"""
     async def run(self, ctx: GraphRunContext[GameState]) -> 'WaitingStartGame':
+        ctx.state.logger.info("Workflow: TakeMission - Parsing mission requirements")
         # Store mission to context
         client = ctx.state.client 
         
@@ -40,6 +44,7 @@ class TakeMission(BaseNode[GameState]):
             player = client.get_player()
 
         client.messages.append(player.message)
+        ctx.state.logger.info(f"Mission message: {player.message}")
 
         result = client.orchestrator_agent.agent.run_sync(
             "Parse this message to get the resource need: " + player.message,
@@ -51,36 +56,53 @@ class TakeMission(BaseNode[GameState]):
         )
 
         print(result.output)
+        ctx.state.logger.info(f"Parsed resource needs: Wood={result.output.wood_need}, Cotton={result.output.cotton_need}")
 
         ctx.state.wood_need = result.output.wood_need
         ctx.state.cotton_need = result.output.cotton_need
 
         print(f'{ctx.state=}')
-
+        ctx.state.logger.info("Workflow: TakeMission -> WaitingStartGame")
         return WaitingStartGame()
 
 @dataclass
 class WaitingStartGame(BaseNode[GameState]):
     """Wait for the game to start"""
     async def run(self, ctx: GraphRunContext[GameState]) -> 'IdentifyTask | End':
-        msg = 'Waiting start game'
-        client = ctx.state.client 
+        client = ctx.state.client
+        ctx.state.logger.info("Workflow: WaitingStartGame - Waiting for game to start")
+        print("Waiting for game to start...")
         
-        # Example implementation - wait for game to start
-        # In a real implementation, this would check player status
-        time.sleep(5)
-        
-        return IdentifyTask()
+        # Poll the player status until it changes from WAITING_FOR_PLAYERS to PLAYING
+        while True:
+            player = client.get_player()
+            
+            # Check if the game has started
+            if player.status == "playing":
+                print("Game has started!")
+                ctx.state.logger.info("Game has started! Workflow: WaitingStartGame -> IdentifyTask")
+                return IdentifyTask()
+            
+            # Check if the game was canceled or ended unexpectedly
+            if player.status in ["win", "loss", "dead", "game_over"]:
+                print(f"Game ended with status: {player.status}")
+                ctx.state.logger.info(f"Game ended with status: {player.status}. Workflow: WaitingStartGame -> End")
+                return End()
+                
+            # Wait a short time before checking again
+            time.sleep(1)
 
 @dataclass
 class IdentifyTask(BaseNode[GameState]):
     """Determine the next task to perform"""
     async def run(self, ctx: GraphRunContext[GameState]) -> 'ExecuteTask | End':
+        ctx.state.logger.info("Workflow: IdentifyTask - Determining next task")
         client = ctx.state.client
         player = client.get_player()
         
         # Check if the game is over
         if player.status == "game_over":
+            ctx.state.logger.info("Game is over. Workflow: IdentifyTask -> End")
             return End()
             
         # Decide the next task
@@ -94,6 +116,8 @@ class IdentifyTask(BaseNode[GameState]):
         )
         
         client.task = result.output
+        ctx.state.logger.info(f"Identified task: {client.task.task_description if hasattr(client.task, 'task_description') else client.task}")
+        ctx.state.logger.info("Workflow: IdentifyTask -> ExecuteTask")
         
         return ExecuteTask()
 
@@ -101,22 +125,35 @@ class IdentifyTask(BaseNode[GameState]):
 class ExecuteTask(BaseNode[GameState]):
     """Execute the identified task"""
     async def run(self, ctx: GraphRunContext[GameState]) -> 'IdentifyTask | End':
+        ctx.state.logger.info("Workflow: ExecuteTask - Executing task")
         client = ctx.state.client
         task = client.task
         
         # Go home if requested
         if hasattr(task, "task_description") and "go home" in task.task_description.lower():
+            ctx.state.logger.info("Executing task: Go home")
             client.go_home()
             
         # Map discovery logic - frontier-based exploration
         elif hasattr(task, "task_description") and "discover" in task.task_description.lower():
+            ctx.state.logger.info("Executing task: Discover map")
             await self.discover_map(ctx)
             
         # Resource collection logic
         elif any(resource_type in task.task_description.lower() for resource_type in ["wood", "cotton", "food"]):
+            resource_type = "unknown"
+            if "wood" in task.task_description.lower():
+                resource_type = "wood"
+            elif "cotton" in task.task_description.lower():
+                resource_type = "cotton"
+            elif "food" in task.task_description.lower():
+                resource_type = "food"
+                
+            ctx.state.logger.info(f"Executing task: Collect {resource_type}")
             await self.collect_resource(ctx, task)
             
         # After task execution, return to task identification
+        ctx.state.logger.info("Task execution complete. Workflow: ExecuteTask -> IdentifyTask")
         return IdentifyTask()
     
     async def collect_resource(self, ctx: GraphRunContext[GameState], task) -> None:
@@ -135,34 +172,40 @@ class ExecuteTask(BaseNode[GameState]):
         resource_type = None
         if "wood" in task.task_description.lower():
             resource_type = 'w'
+            ctx.state.logger.info("Searching for wood resources")
             result = client.play_game_agent.agent.run_sync(
                 "find wood",
                 deps=FindContext(player=player)
             )
         elif "cotton" in task.task_description.lower():
             resource_type = 'c'
+            ctx.state.logger.info("Searching for cotton resources")
             result = client.play_game_agent.agent.run_sync(
                 "find cotton",
                 deps=FindContext(player=player)
             )
         elif "food" in task.task_description.lower():
             resource_type = 'f'
+            ctx.state.logger.info("Searching for food resources")
             result = client.play_game_agent.agent.run_sync(
                 "find food",
                 deps=FindContext(player=player)
             )
         else:
             # Unknown resource type, default to discovery
+            ctx.state.logger.info("Unknown resource type, defaulting to map discovery")
             await self.discover_map(ctx)
             return
         
         # Allow collection of the resource type
         if resource_type and resource_type not in player.allow_collect_items:
+            ctx.state.logger.info(f"Enabling collection of resource type: {resource_type}")
             client.allow_collect_items(items=[resource_type])
         
         # If we found resource positions
         if hasattr(result.output, "positions") and result.output.positions:
             positions = result.output.positions
+            ctx.state.logger.info(f"Found {len(positions)} resource positions")
             
             # Get the nearest resource position
             current_row, current_col = player.row, player.col
@@ -171,6 +214,8 @@ class ExecuteTask(BaseNode[GameState]):
                 key=lambda pos: abs(pos.row - current_row) + abs(pos.col - current_col)
             )
             
+            ctx.state.logger.info(f"Nearest resource at position: ({nearest_position.row}, {nearest_position.col})")
+            
             # Find path to the resource
             path = client.find_shortest_path_to(nearest_position.row, nearest_position.col)
             
@@ -178,17 +223,21 @@ class ExecuteTask(BaseNode[GameState]):
                 # If we're adjacent to the resource, collect it
                 if len(path) == 1:
                     # Move to the resource and collect it
+                    ctx.state.logger.info("Moving to collect resource")
                     client.move(path[0])
                     # Collection happens automatically when stepping on the resource
                     # if we've allowed collection of this resource type
                 elif len(path) > 1:
                     # Move one step toward the resource
+                    ctx.state.logger.info("Moving one step toward resource")
                     client.move(path[0])
             else:
                 # No path found, explore instead
+                ctx.state.logger.info("No path to resource found, exploring instead")
                 await self.discover_map(ctx)
         else:
             # No resources found, explore
+            ctx.state.logger.info("No resources found, exploring instead")
             await self.discover_map(ctx)
     
     async def discover_map(self, ctx: GraphRunContext[GameState]) -> None:
@@ -205,6 +254,7 @@ class ExecuteTask(BaseNode[GameState]):
         """
         client = ctx.state.client
         player = client.get_player()
+        ctx.state.logger.info("Executing map discovery algorithm")
         
         # Get player's current position
         current_row, current_col = player.row, player.col
@@ -237,14 +287,16 @@ class ExecuteTask(BaseNode[GameState]):
         # Update frontier with new unexplored cells
         new_frontier_cells = get_unexplored_neighbors(current_row, current_col, player.grid)
         for cell in new_frontier_cells:
-            if cell[:2] not in [f[:2] for f in ctx.state.frontier]:
-                ctx.state.frontier.append(cell)
+            ctx.state.frontier.append(cell)
+        
+        ctx.state.logger.info(f"Added {len(new_frontier_cells)} new cells to frontier")
         
         # Remove current position from frontier if it was there
         ctx.state.frontier = [cell for cell in ctx.state.frontier if cell[:2] != (current_row, current_col)]
         
         # If frontier is empty, find any unexplored cells on the map
         if not ctx.state.frontier:
+            ctx.state.logger.info("Frontier is empty, finding new unexplored cells")
             print("Finding new frontier cells from entire map...")
             # Use PlayGameAgent to find unexplored cells
             result = client.play_game_agent.agent.run_sync(
@@ -256,14 +308,18 @@ class ExecuteTask(BaseNode[GameState]):
             if hasattr(result.output, "positions") and result.output.positions:
                 # Choose a random unexplored cell to move towards
                 target_pos = random.choice(result.output.positions)
+                ctx.state.logger.info(f"Found unexplored cells, targeting: ({target_pos.row}, {target_pos.col})")
                 path = client.find_shortest_path_to(target_pos.row, target_pos.col)
                 if path:
                     # Move one step towards target
+                    ctx.state.logger.info("Moving one step toward unexplored area")
                     client.move(path[0])
                     return
             
             # If we didn't find a path, move randomly
-            client.move(random.randint(0, 3))
+            ctx.state.logger.info("No path to unexplored cells found, moving randomly")
+            random_direction = random.randint(0, 3)
+            client.move(random_direction)
             return
             
         # Choose closest frontier cell (using Manhattan distance)
@@ -274,13 +330,17 @@ class ExecuteTask(BaseNode[GameState]):
         
         # Find path to closest frontier cell
         target_row, target_col, _ = closest_cell
+        ctx.state.logger.info(f"Targeting closest frontier cell at: ({target_row}, {target_col})")
         path = client.find_shortest_path_to(target_row, target_col)
         
         # Move one step towards target
         if path:
+            ctx.state.logger.info("Moving one step toward frontier cell")
             client.move(path[0])
         else:
             # If no path found, remove this cell from frontier and try again next time
+            ctx.state.logger.info("No path to frontier cell found, removing from frontier")
             ctx.state.frontier.remove(closest_cell)
             # Make a random move as fallback
+            ctx.state.logger.info("Making random move as fallback")
             client.move(random.randint(0, 3)) 

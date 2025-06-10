@@ -24,7 +24,7 @@ class Server:
 
         load_dotenv(override=True)
 
-        self.host = host or os.environ.get('SERVER', '0.0.0.0')
+        self.host = host or os.environ.get('SERVER', 'localhost')
         self.port = port or int(os.environ.get('PORT', 4444))
         self.test_mode = test_mode
         log(f'Listern to {self.host}:{self.port}', '[SERVER]')

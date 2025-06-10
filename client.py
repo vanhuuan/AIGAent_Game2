@@ -28,7 +28,7 @@ class Client:
     def set_player_name(self, name):
         log(f'Send message to server to set name: {name}', '[CLIENT]')
         self.send_message(SetPlayerNameMessage(player_name=name))
-        name = self.receive_message()
+        # name = self.receive_message()
        
         return name
 
