@@ -5,6 +5,7 @@ description = "Add your description here"
 readme = "README.md"
 requires-python = ">=3.13"
 dependencies = [
+    "faker>=37.3.0",
     "jupyterlab>=4.4.0",
     "logfire>=3.14.0",
     "mermaid-python>=0.1",

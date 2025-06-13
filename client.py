@@ -3,9 +3,13 @@ from dotenv import load_dotenv
 from logs import log
 import os
 from utils import send, receive  
+import time
+import threading
+
+
 from message import (
     Message, MoveMessage, RemoveInProcessMoveMessage, SetPlayerNameMessage, 
-    GetPlayerMessage, AllowCollectItemsMessage
+    GetPlayerMessage, AllowCollectItemsMessage, StillAliveMessage
 )
 from config import Config
 
@@ -15,22 +19,31 @@ load_dotenv()
 class Client:
     def __init__(self, host=None, port=None):
 
-        self.host = host or os.environ.get('SERVER', 'localhost')
+        self.host = host or os.environ.get('SERVER', '0.0.0.0')
         self.port = port or int(os.environ.get('PORT', 4444))
 
-        log(f'Listen to {self.host}:{self.port}', '[CLIENT]')
+        log(f'Listern to {self.host}:{self.port}', '[CLIENT]')
 
         self.client_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         self.client_socket.connect((self.host, self.port))
         self.player = self.receive_message()
+        time.sleep(1)  # Allow some time for the player to be set
         log(f"Receive client from server: {self.player}", '[CLIENT]')
+
+        threading.Thread(target=self.ping_pong_message, daemon=True).start()
     
+    def ping_pong_message(self):
+        while True:
+            try:
+                self.send_message(StillAliveMessage())
+                time.sleep(10)  # Send ping every 5 seconds
+            except Exception as e:
+                log(f'Error in ping_pong_message: {e}', '[CLIENT]')
+                break
+
     def set_player_name(self, name):
         log(f'Send message to server to set name: {name}', '[CLIENT]')
         self.send_message(SetPlayerNameMessage(player_name=name))
-        # name = self.receive_message()
-       
-        return name
 
     def get_map_value(self, row, col):
         return self.player.map[row * Config.N_COL + col]
@@ -44,14 +57,10 @@ class Client:
     def clear_in_process_messages(self):
         self.send_message(RemoveInProcessMoveMessage())
 
-    def get_task(self):
-        self.send_message(RemoveInProcessMoveMessage())
-
     def receive_message(self):
         return receive(self.client_socket)
 
     def move(self, direction):
-        log(f'Move to dir {direction}', '[CLIENT]')
         self.send_message(MoveMessage(dir=direction))
     
     def move_left(self):

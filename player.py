@@ -22,9 +22,9 @@ class Player(BaseModel):
     # items
     # HP: int =10
     store: list[str] = []
-    food: int = 0 # Store
-    wood: int = 0 # Store
-    cotton: int = 0 # Store
+    # food: int = 0 # Store
+    # wood: int = 0 # Store
+    # cotton: int = 0 # Store
 
     items_on_hand: list[str] = []
 
@@ -36,6 +36,7 @@ class Player(BaseModel):
 
     last_updated: float = 0
     paused_time: float = 0
+    paused_duration: int = 0
     map_w: int = 0
     map_h: int = 0
     grid: np.ndarray

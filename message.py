@@ -5,6 +5,9 @@ from enums import GameStatus
 class Message(BaseModel):
     pass
 
+class StillAliveMessage(Message):
+    pass
+
 class SetPlayerNameMessage(Message):
     player_name: str
 

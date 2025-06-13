@@ -2,8 +2,6 @@ import pickle
 import struct
 import pygame
 import socket
-import numpy as np
-from collections import deque
 
 def send(sock, data):
     if sock._closed:
@@ -85,86 +83,6 @@ def draw_energy(screen, text, energine: int = 0, energine_max: int = 10,
         pygame.draw.rect(screen, bg_color, rect, border_radius=4)
         inner_rect = rect.inflate(-4, -4)
         pygame.draw.rect(screen, (255,255,255), inner_rect, border_radius=4)
-
-# Move step (dr, dc, move_code)
-MOVES = [
-    (0, -1, 0),  # left
-    (0, 1,  1),  # right
-    (-1, 0, 2),  # up
-    (1, 0,  3),  # down
-]
-
-def find_resource(grid: np.ndarray, resource: str) -> list:
-    """
-    Find cells containing a specific resource
-    
-    Args:
-        grid: 2D grid representing the game map
-        resource: Resource identifier ('f', 'w', 'c', -1, etc.)
-        
-    Returns:
-        List of dictionaries with row and col positions
-    """
-    pair_of_row_cols = np.where(grid == resource)
-    
-    result = []
-    if pair_of_row_cols:
-        for r, c in zip(pair_of_row_cols[0], pair_of_row_cols[1]):
-            result.append({'row': int(r), 'col': int(c)})    
-    return result
-
-def is_valid(r, c, grid):
-    """
-    Check if a position is valid for movement
-    
-    Args:
-        r: Row index
-        c: Column index
-        grid: 2D grid representing the game map
-        
-    Returns:
-        Boolean indicating if the position is valid
-    """
-    h, w = grid.shape
-    return 0 <= r < h and 0 <= c < w and grid[r, c] in ('g', '-1')
-
-def shortest_path(start, end, grid):
-    """
-    Find the shortest path from start to end
-    
-    Args:
-        start: Tuple of (row, col) for starting position
-        end: Tuple of (row, col) for ending position
-        grid: 2D grid representing the game map
-        
-    Returns:
-        List of movement directions (0: left, 1: right, 2: up, 3: down)
-    """
-    start_row, start_col = start
-    end_row, end_col = end
-    
-    # Queue for BFS
-    queue = deque([(start_row, start_col, [])])
-    visited = set([(start_row, start_col)])
-    
-    while queue:
-        row, col, path = queue.popleft()
-        
-        # If we reached the destination
-        if row == end_row and col == end_col:
-            return path
-        
-        # Try all four directions
-        for dr, dc, move_code in MOVES:
-            new_row, new_col = row + dr, col + dc
-            
-            if is_valid(new_row, new_col, grid) and (new_row, new_col) not in visited:
-                visited.add((new_row, new_col))
-                new_path = path + [move_code]
-                queue.append((new_row, new_col, new_path))
-    
-    # No path found
-    return []
 
     
 

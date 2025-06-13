@@ -14,10 +14,12 @@ from enums import GameStatus
 import numpy as np
 import threading
 from collections import Counter
+from events import FireEvent, RewardPunishmentEvent
 
 
 class GameBoard():
-    def __init__(self):
+    def __init__(self, server):
+        self.server = server
         self.start_x = 2
         self.start_y = 60
         self.CELL_SIZE: int = Config.CELL_SIZE
@@ -40,7 +42,7 @@ class GameBoard():
 
         # Dashboard game
         pygame.init()
-        self.screen = pygame.display.set_mode((self.width + 2 * self.start_x, self.height + self.start_y + 10), pygame.NOFRAME)
+        self.screen = pygame.display.set_mode((self.width + 2 * self.start_x, self.height + self.start_y + 10), pygame.RESIZABLE)
 
         self.players = {}
 
@@ -65,6 +67,7 @@ class GameBoard():
 
         self.lock = threading.Lock()
         self.messages = []
+        self.message_tick_remaining = 0
         
         self.draw()
 
@@ -76,12 +79,12 @@ class GameBoard():
         images = {}
         images['players'] = {}
         for i, img_path in enumerate(player_image_paths):
-            images['players'][i] = load_image(Path('img/players') / img_path, self.CELL_SIZE, self.CELL_SIZE)
+            images['players'][i] = load_image(Path('img/players') / img_path, self.CELL_SIZE +20, self.CELL_SIZE +20)
 
         player_image_paths = [file.name for file in Path('img/houses').glob('*.*')]
         images['houses'] = {}
         for i, img_path in enumerate(player_image_paths):
-            images['houses'][i] = load_image(Path('img/houses') / img_path, self.CELL_SIZE, self.CELL_SIZE)
+            images['houses'][i] = load_image(Path('img/houses') / img_path, self.CELL_SIZE + 15, self.CELL_SIZE + 15)
 
         # Load players map and assests
         images['maps'] = {}
@@ -101,6 +104,13 @@ class GameBoard():
         images['maps']['f-g'] = load_image(Path('img/maps/f-grass.png'), self.CELL_SIZE, self.CELL_SIZE)
         images['maps']['f-s'] = load_image(Path('img/maps/f-sword.png'), self.CELL_SIZE, self.CELL_SIZE)
         images['maps']['f-w'] = load_image(Path('img/maps/f-wood.png'), self.CELL_SIZE, self.CELL_SIZE)
+
+        # fire
+        images['maps']['fire-w-1'] = load_image(Path('img/maps/fire-wood1.png'), self.CELL_SIZE, self.CELL_SIZE)
+        images['maps']['fire-w-2'] = load_image(Path('img/maps/fire-wood2.png'), self.CELL_SIZE, self.CELL_SIZE)
+
+        images['maps']['diamond'] = load_image(Path('img/maps/diamond.png'), self.CELL_SIZE, self.CELL_SIZE)
+        images['maps']['poison'] = load_image(Path('img/maps/poison.png'), self.CELL_SIZE, self.CELL_SIZE)
         
         return images
         
@@ -132,19 +142,26 @@ class GameBoard():
         # Blit time text
         self.screen.blit(text_surface, (box_x + inner_padding, box_y + inner_padding))
 
-    def create_random_player(self, id:str) -> Player:
-        while True:
-            row=random.randint(0, self.n_row)
-            # row = random.randint(0, 5)
-            col=random.randint(0, self.n_col)
-            if self.map.get_value(row, col) == 'g':
-                break
+    def house_positions(self):
+        return [ 
+            (4, 5),               (0, Config.N_COL//2), (4, Config.N_COL-7), 
+            (Config.N_ROW-4, 5) , (Config.N_ROW -1, Config.N_COL//2), (Config.N_ROW -4,Config.N_COL-7)]
 
+    def create_random_player(self, id:str) -> Player:
+        # while True:
+        #     row=random.randint(0, self.n_row)
+        #     # row = random.randint(0, 5)
+        #     col=random.randint(0, self.n_col)
+        #     if self.map.get_value(row, col) == 'g':
+        #         break
+        positions = self.house_positions()
+        row = positions[int(id)][0]
+        col = positions[int(id)][1]
         grid = np.full((self.n_row , self.n_col), '-1')
         player = Player(
             id=id,
             row=row,
-            col=col,
+            col=col ,
             home_row = row,
             home_col = col,
             color=(random.randint(0, 255), random.randint(0, 255), random.randint(0, 255)),
@@ -158,8 +175,6 @@ class GameBoard():
         # update map
         self.map.set_value(row, col, f'{id}')
         # update nearby map area
-
-        log(f'type of map ')
 
         self.update_nearby_map_area(player)
         
@@ -184,14 +199,14 @@ class GameBoard():
                 self.draw_player(player)
 
     def draw_player(self, player):
-        x = self.start_x + player.col * self.CELL_SIZE 
-        y = self.start_y + player.row * self.CELL_SIZE
+        x = self.start_x + player.col * self.CELL_SIZE -10
+        y = self.start_y + player.row * self.CELL_SIZE -10
         display_image(self.screen, self.images['players'][int(player.id)], x+1, y+1)
 
     def draw_home(self, player):
         x = self.start_x + player.home_col * self.CELL_SIZE 
         y = self.start_y + player.home_row * self.CELL_SIZE
-        display_image(self.screen, self.images['houses'][int(player.id)], x, y)
+        display_image(self.screen, self.images['houses'][int(player.id)], x-7, y-7)
 
     # draw map: can draw all players of specific player
     def draw_game_board(self):
@@ -219,8 +234,11 @@ class GameBoard():
                 else: #value in ['g','f','w','c','a','s']:
                     if visible_all:
                         display_image(self.screen, self.images['maps']['g'], x,y) # Background
-                        if value.isdigit() and int(value) in range(len(self.players)):
-                            display_image(self.screen, self.images['players'][int(value)], x+1,y+1)
+                        if value.isdigit() and int(value)>=0:
+                            if self.tick % 2 == 0:
+                                display_image(self.screen, self.images['players'][int(value)], x-10,y-10)
+                            else:
+                                display_image(self.screen, self.images['players'][int(value)], x-9,y-9)
                         else:
                             display_image(self.screen, self.images['maps'][value], x,y)
                     else:
@@ -228,15 +246,31 @@ class GameBoard():
                             col in range(player.col - self.OPEN_CELL//2, player.col + self.OPEN_CELL//2 + 1):
                             display_image(self.screen, self.images['maps']['g'], x,y) # Background
                             if value.isdigit() and int(value) in range(len(self.players)):
-                                display_image(self.screen, self.images['players'][int(value)], x+1,y+1)
+                                if self.tick % 2 == 0:
+                                    display_image(self.screen, self.images['players'][int(value)], x-10,y-10)
+                                else:
+                                    display_image(self.screen, self.images['players'][int(value)], x-9,y-9)
                             else:
                                 display_image(self.screen, self.images['maps'][value], x,y)
                         else:
                             display_image(self.screen, self.images['maps']['f-g'], x,y) # Background
                             if value.isdigit() and int(value) in range(len(self.players)):
-                                display_image(self.screen, self.images['players'][int(value)], x+1,y+1)
+                                if self.tick % 2 == 0:
+                                    display_image(self.screen, self.images['players'][int(value)], x-10,y-10)
+                                else:
+                                    display_image(self.screen, self.images['players'][int(value)], x-9,y-9)
                             else:
                                 display_image(self.screen, self.images['maps'][f'f-{value}'], x,y)
+                        
+                if value == 'w':
+                    if self.server.current_event \
+                        and (isinstance(self.server.current_event, FireEvent) or self.server.current_event ==FireEvent):
+                        display_image(self.screen, self.images['maps']['g'], x,y)
+                        if self.tick % 2 == 0:
+                            display_image(self.screen, self.images['maps']['fire-w-1'], x,y)
+                        else:
+                            display_image(self.screen, self.images['maps']['fire-w-2'], x,y)
+                            
                 # elif value.isdigit():
                 #     value = int(value)
                 #     if value in range(len(self.players)):
@@ -312,18 +346,20 @@ class GameBoard():
             self.text_color, self.text_background_color,
             self.text_font)
         
-        display_image(self.screen, self.images['players'][int(player.id)], x + box.width, y )
+        display_image(self.screen, self.images['players'][int(player.id)], x + box.width, y -10)
 
         if player.status == PlayerStatus.PAUSED:
-            draw_energy(self.screen, f'row: {player.row}, col: {player.col}. Status: {player.status.value}, Remain time: {int(Config.PAUSED_TIME - (datetime.datetime.now().timestamp() - player.paused_time))} s', 0, 0 , x + box.width + 28, y + 6 )
+            draw_energy(self.screen, f'row: {player.row}, col: {player.col}. Status: {player.status.value}, Remain time: {int(player.paused_duration - (datetime.datetime.now().timestamp() - player.paused_time))} s', 
+                        0, 0 , x + box.width + 48, y + 6 )
         else:
-            draw_energy(self.screen, f'row: {player.row}, col: {player.col}. Status: {player.status.value}', 0, 0 , x + box.width + 28, y + 6)
+            draw_energy(self.screen, f'row: {player.row}, col: {player.col}. Status: {player.status.value}', 
+                        0, 0 , x + box.width + 48, y + 6)
         
         draw_energy(self.screen, 
-                    self.build_store_str(player.store).ljust(50)  +
-                    self.build_items_on_hand_str(player.items_on_hand).ljust(50) + 
-                    self.build_equipment_str(player),
-                    0, 0, x + box.width + 28, y + 28 )
+            self.build_store_str(player.store).ljust(50)  +
+            self.build_items_on_hand_str(player.items_on_hand).ljust(50) + 
+            self.build_equipment_str(player),
+            0, 0, x + box.width + 48, y + 28 )
     
     def draw_message(self, pre_box):
         def chunk_message_fixed(message: str, size: int = 90) -> list[str]:
@@ -344,11 +380,29 @@ class GameBoard():
             color = (0, 0, 0)
         if len(self.messages)> 0:
             message = self.messages[-1]
+            if self.message_tick_remaining:
+                message =f"{self.message_tick_remaining}s: {message}"
             chunks = chunk_message_fixed(message)[:3]
             for c in chunks:
                 text_surface = font.render(c, True, color)
                 self.screen.blit(text_surface, (x, y))
                 y+=14
+
+    def draw_events(self):
+        
+        event = self.server.current_event
+        if not event:
+            return
+        
+        if isinstance(event, RewardPunishmentEvent):   
+            for row, col in zip(event.event_at_rows, event.event_at_cols):
+                x = self.start_x + col * self.CELL_SIZE
+                y = self.start_y + row * self.CELL_SIZE
+                
+                display_image(self.screen, self.images['maps']['g'], x,y)
+                if self.tick % 2 == 0:
+                    if event.icon_name:
+                        display_image(self.screen, self.images['maps'][event.icon_name], x,y)
 
     def draw(self):
         if self.game_status == GameStatus.PLAYING or self.game_status == GameStatus.WAITING_FOR_PLAYERS:
@@ -358,4 +412,5 @@ class GameBoard():
         box = self.draw_game_status()
         self.draw_players()
         self.draw_player_detail_info(box)
+        self.draw_events()
         self.draw_message(box)

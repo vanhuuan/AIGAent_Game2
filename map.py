@@ -152,34 +152,43 @@ class Map():
         for i in range(Config.MAP_NUMBER_FOOT):
             w = random.randint(1, 2)
             h = random.randint(1, 2)
-            c = random.randint(w , self.n_col - w)
-            r = random.randint(h , self.n_row - h )
+            c = random.randint(Config.N_COL //2  - 1 , Config.N_COL //2 + 1)
+            r = random.randint(Config.N_ROW //2  - 4 , Config.N_ROW //2 + 4)
+            
             self.grid[r-h:r+h, c-w:c+w] = 'f'
 
         # random wood
         for i in range(Config.MAP_NUMBER_WOOD):
-            w = random.randint(1, 2)
-            h = random.randint(1, 2)
-            c = random.randint(w , self.n_col - w)
-            r = random.randint(h , self.n_row - h)
-            self.grid[r-h:r+h, c-w:c+w] = 'w'
+            w = random.randint(1, 3)
+            h = random.randint(1, 3)
+            c = random.randint(Config.N_COL//2 -7 , Config.N_COL//2 + 7)
+            r = random.randint(Config.N_ROW//2 -1, Config.N_ROW//2+1)
+            self.grid[r:r+h, c:c+w] = 'w'
 
-        # random cotton
+        # # random cotton
         for i in range(Config.MAP_NUMBER_COTTON):
-            w = random.randint(1, 2)
-            h = random.randint(1, 2)
-            c = random.randint(w , self.n_col - w)
-            r = random.randint(h , self.n_row - h)
-            self.grid[r-h:r+h, c-w:c+w] = 'c'
+            w = random.randint(1, 3)
+            h = random.randint(1, 3)
+            c = random.randint(Config.N_COL//2 -7 , Config.N_COL//2 + 7)
+            r = random.randint(Config.N_ROW//2 -1, Config.N_ROW//2+1)
+            self.grid[r:r+h, c:c+w] = 'c'
 
-    def random_item(self, item, number):
+    def random_item(self, item, number, row_range:tuple[int, int]=None, col_range:tuple[int, int]=None):
         count = 0
         
         while count < number:
+            
             w = 1
             h = 1
-            c = random.randint(w , self.n_col - w)
-            r = random.randint(h , self.n_row - h)
+            if row_range:
+                r = random.randint(row_range[0], row_range[1])
+            else:
+                r = random.randint(h , self.n_row - h)
+            if col_range:
+                c = random.randint(col_range[0], col_range[1])
+            else:
+                c = random.randint(w , self.n_col - w)
+            
             if self.grid[r, c] == 'g':
                 self.grid[r, c] = item
                 count += 1
@@ -203,11 +212,13 @@ class Map():
                 if player.armor == 0:
                     player.armor +=1
                     self.set_value(row, col, 'g')
+                    self.random_item('a', 1)
 
             elif item == 's':
                 if player.sword == 0:
                     player.sword +=1
                     self.set_value(row, col, 'g')
+                    self.random_item('s', 1)
 
         # with staict items, check around player
         items = self.get_neighbor_values(row, col, player.allow_collect_items)

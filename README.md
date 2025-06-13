@@ -14,23 +14,24 @@ The main task is to build a boat to escape the island, with each boat ⛵ being 
     - After joining the game, the server will send a text message detailing the quantities X (wood) and Y (cotton), as well as the formula for converting cotton into fabric.
 
 ⚔️ Combat
+
 - In addition, agents will be able to collect additional items including: ⚔️ Sword (Attack) + 🛡️ Shield (Defend)
 With the rules when 2 agents clash:
-    - No ⚔️ Sword or 🛡️ Shield: Continue moving
-    - 🛡️ Shield vs 🛡️ Shield: Agent loses Shield and continues moving
-    - ⚔️ Sword vs ⚔️ Sword: Agent loses Sword and is returned to Home
-    - ⚔️ Sword vs 🛡️ Shield: Agent loses item and continues moving
-    - ⚔️ Sword vs No Sword/Shield: Agent steals the item and the other agent is returned to Home.
+  - No ⚔️ Sword or 🛡️ Shield: Continue moving
+  - 🛡️ Shield vs 🛡️ Shield: Agent loses Shield and continues moving
+  - ⚔️ Sword vs ⚔️ Sword: Agent loses Sword and is returned to Home
+  - ⚔️ Sword vs 🛡️ Shield: Agent loses item and continues moving
+  - ⚔️ Sword vs No Sword/Shield: Agent steals the item and the other agent is returned to Home.
 
 - Unexpected events will appear on the island at any time during the match - in text form for Agents to analyze - understand and execute commands. Example:
-    - 🎁 Reward Box: Agent goes to the announced location to receive the reward
-    - ⛈️ Rain/Storm: Agent must run home, otherwise, the item being carried will be lost and returned to Home
+  - 🎁 Reward Box: Agent goes to the announced location to receive the reward
+  - ⛈️ Rain/Storm: Agent must run home, otherwise, the item being carried will be lost and returned to Home
 
 - 🏆 Victory Conditions
     How to calculate points:
 
-    - Finish a boat to leave the island: 250 points + Bonus points in order of completion
-    - Collect items: Food (1p) - Wood (3p) - Cotton (3p) - Fabric (20p)
+  - Finish a boat to leave the island: 250 points + Bonus points in order of completion
+  - Collect items: Food (1p) - Wood (3p) - Cotton (3p) - Fabric (20p)
     --> Ranking based on the total points earned by the Agent.
 
 ## Details
@@ -143,7 +144,6 @@ class Player(BaseModel):
   - 🎁 Reward Box: Agent goes to the announced location to receive the reward
   - ⛈️ Rain/Storm: Agent must run home, otherwise, the item being carried will be lost and returned to Home
 
-
 ## How to run game
 
 You can use below command to update you python environment
@@ -152,12 +152,11 @@ You can use below command to update you python environment
 uv sync
 ```
 
-
 ### Run server
 
 Server using pygame and run with GUI interface
 
-- There is the config for runing in debug mode if you using VS Code editor. 
+- There is the config for runing in debug mode if you using VS Code editor.
 
 - You can run in command live as below:
 
@@ -176,8 +175,8 @@ Some shortcuts:
   - get their information by call `get_player` function
 
 - To debugger game client
-    - press `'+'`, `'-'` to select game client
-    - press `'arrow'` button to move game client
+  - press `'+'`, `'-'` to select game client
+  - press `'arrow'` button to move game client
 
 ### Run Message Dispatcher
 
@@ -214,6 +213,7 @@ class ClientCommunicator():
 ```
 
 #### How to send message to all game client
+
 - Create instance of `ClientCommunicator` class
 - Call `send_message` method to send message
 
@@ -243,6 +243,7 @@ client_communicator.send('Your task is to collect 10 units of cotton! Just kiddi
     `allow_collect_items` method with params as items (list of resource)
 
     For example you would like you player  collect only wood:
+
     ```python
     my_game_client.allow_collect_items(items = ['w'])
     ```
@@ -250,7 +251,6 @@ client_communicator.send('Your task is to collect 10 units of cotton! Just kiddi
 - **Importance**
   - The server updates your player information once per second (a “game tick”). If you send move commands too quickly, they’ll be added to a queue and processed one per tick. You can call the `clear_in_process_messages()` method to clear this queue.
   - Call the `get_player()` method to fetch your player’s current state. The data returned reflects the most recent game‐tick update from the server.
-
 
 `Client` class
 
@@ -303,8 +303,6 @@ class Client:
     def clear_in_process_messages(self):
         self.send_message(RemoveInProcessMoveMessage())
 
-    def get_task(self):
-        self.send_message(RemoveInProcessMoveMessage())
 
     def receive_message(self):
         return receive(self.client_socket)
@@ -348,3 +346,42 @@ class Client:
         log('Client closed', '[CLIENT]')
 
 ```
+
+## Calculations for Win Conditions
+
+### Number of Cells
+
+- **N_ROW**: `int = 18`  
+- **N_COL**: `int = 32`
+
+→ Total cells:
+18 * 32 = 576
+
+Assuming each step moves exactly one cell (ignoring whether a cell contains a resource), the time required is:
+576 steps → 576 seconds → 576 / 60 ≈ 9.6 minutes
+
+Time to traverse the entire map: 9.6 minutes
+
+### Saving Time Once a Resource Is Found
+
+You don’t need to visit every cell once you’ve located the necessary resources → saves approximately 6 minutes.
+
+### After Finding Resources
+
+The maximum time for a single resource-collection path is:
+18 (rows) + 32 (columns) = 50 seconds ≈ 1 minute
+
+- To collect 6 resources:
+6 × (≈1 minute per resource) = 6 minutes
+
+### Total Time to Win (Travel + Collection)
+
+9.6 minutes (map traversal if needed)
+– 6 minutes (saved by stopping early) + 6 minutes (resource pickups) ≈ 12 minutes
+
+### Accounting for Death/Respawn Overhead
+
+Add roughly 3 more minutes to cover any time lost due to dying or detours → ≈15 minutes total.
+
+
+

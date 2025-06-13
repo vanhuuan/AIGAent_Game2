@@ -1,5 +1,4 @@
 from enum import Enum
-
 class GameStatus(Enum):
     """
     Represents the possible states of a game.
@@ -17,6 +16,7 @@ class PlayerStatus(Enum):
     LOSS = 'loss'
     PAUSED = 'paused'
     DEAD = 'dead'
+    DISCONNECTED = 'disconnected'
 
 class Direction(Enum):
     LEFT = 0
