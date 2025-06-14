@@ -16,7 +16,7 @@ from enum import Enum
 # Add the root directory to the Python path for imports
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 
-from promptings import SYSTEM_PROMPTING, DECISION_MAKING_PROMPT
+from promptings import SYSTEM_PROMPTING
 from config import Config
 
 @dataclass
@@ -296,6 +296,70 @@ class GameWorkflow:
             openai.api_key = self.api_key
             log("OpenAI API initialized", "[GameWorkflow]")
         
+        # Initialize exploration tracking
+        self.last_direction = None
+        self.last_position = None
+        self.last_action = None
+        self.visited_positions = set()
+        
+    def _format_full_map(self, client) -> str:
+        """Format the entire map state for the prompt."""
+        player = client.get_player()
+        if player is None or player.grid is None:
+            return "Map not yet explored"
+            
+        map_str = "Full map state:\n"
+        for i in range(len(player.grid)):
+            row_str = ""
+            for j in range(len(player.grid[0])):
+                if i == player.row and j == player.col:
+                    row_str += "P "  # Player position
+                else:
+                    cell = str(player.grid[i][j])
+                    row_str += cell + " "
+            map_str += row_str + "\n"
+            
+        return map_str
+        
+    def _format_visible_map(self, client) -> str:
+        """Format the current visible area around the player."""
+        player = client.get_player()
+        if player is None or player.grid is None:
+            return "Map not yet explored"
+            
+        # Get the visible area around the player
+        visible_range = 5  # Show 5 cells in each direction
+        
+        map_str = "Current visible area (5x5 around player):\n"
+        for i in range(max(0, player.row - visible_range), min(len(player.grid), player.row + visible_range + 1)):
+            row_str = ""
+            for j in range(max(0, player.col - visible_range), min(len(player.grid[0]), player.col + visible_range + 1)):
+                if i == player.row and j == player.col:
+                    row_str += "P "  # Player position
+                else:
+                    cell = str(player.grid[i][j])
+                    row_str += cell + " "
+            map_str += row_str + "\n"
+            
+        return map_str
+        
+    def _check_for_other_players(self, client) -> tuple[bool, list[tuple[int, int]]]:
+        """Check if there are other players in the visible area."""
+        player = client.get_player()
+        if player is None or player.grid is None:
+            return False, []
+            
+        visible_range = 5
+        other_players = []
+        
+        for i in range(max(0, player.row - visible_range), min(len(player.grid), player.row + visible_range + 1)):
+            for j in range(max(0, player.col - visible_range), min(len(player.grid[0]), player.col + visible_range + 1)):
+                cell = str(player.grid[i][j])
+                if cell.isdigit() and cell != '0':  # Other player found
+                    other_players.append((i, j))
+                    
+        return len(other_players) > 0, other_players
+        
     def decide_next_action(self) -> GameAction:
         """Determine the next action based on current game state using LLM."""
         log("Deciding next action using LLM...", "[GameWorkflow]")
@@ -317,6 +381,17 @@ class GameWorkflow:
         player = self.game_state.client.get_player()
         entity_positions = self.game_state.client.entity_positions
         
+        # Check for other players in visible area
+        has_other_players, other_player_positions = self._check_for_other_players(self.game_state.client)
+        if has_other_players:
+            log(f"Other players detected at positions: {other_player_positions}", "[GameWorkflow]")
+            # Calculate direction away from other players
+            # This will be handled by the LLM with the updated prompt
+        
+        # Update visited positions
+        current_pos = (player.row, player.col)
+        self.visited_positions.add(current_pos)
+        
         # Calculate resource needs
         wood_needed = max(0, self.game_state.win_condition.get('wood', 0) - 
                          player.store.count('w') - 
@@ -327,7 +402,8 @@ class GameWorkflow:
                            player.items_on_hand.count('c'))
         
         # Prepare the input for the LLM
-        prompt = DECISION_MAKING_PROMPT.format(
+        last_event_task = self.game_state.event_tasks[0] if self.game_state.event_tasks else 'None'
+        prompt = SYSTEM_PROMPTING.format(
             row=player.row,
             col=player.col,
             inventory=player.store,
@@ -339,7 +415,17 @@ class GameWorkflow:
             sword_positions=entity_positions.get('s', []),
             armor_positions=entity_positions.get('a', []),
             event_tasks=self.game_state.event_tasks,
-            status=player.status.value
+            status=player.status.value,
+            wood_count=player.store.count('w'),
+            cotton_count=player.store.count('c'),
+            fabric_count=player.store.count('f'),
+            last_event_task=last_event_task,
+            full_map=self._format_full_map(self.game_state.client),
+            current_visible_map=self._format_visible_map(self.game_state.client),
+            previous_position=self.last_position if self.last_position else 'None',
+            last_action=self.last_action if self.last_action else 'None',
+            last_direction=self.last_direction if self.last_direction else 'None',
+            visited_positions=sorted(list(self.visited_positions))
         )
         
         try:
@@ -365,6 +451,16 @@ class GameWorkflow:
                 explanation = result.get("explanation", "No explanation provided")
                 
                 log(f"Decision: {action_name} - {explanation}", "[GameWorkflow]")
+                
+                # Update movement history
+                self.last_position = current_pos
+                self.last_action = action_name
+                if action_name == "EXPLORE":
+                    # Calculate direction based on movement
+                    if self.last_position:
+                        row_diff = player.row - self.last_position[0]
+                        col_diff = player.col - self.last_position[1]
+                        self.last_direction = (row_diff, col_diff)
                 
                 # Convert the action name string to GameAction enum
                 try:

@@ -30,7 +30,56 @@ class GameClient(Client):
             '5': [], 
             '6': []
         }
+        # Add exploration tracking
+        self.visited_positions = set()
+        self.last_direction = None
+        self.exploration_row = 0
+        self.exploration_col = 0
         log(f"GameClient initialized successfully for player: {name}", "[GameClient]")
+
+    def _get_next_exploration_direction(self, player) -> int:
+        """Determine the next direction for exploration based on current state."""
+        current_pos = (player.row, player.col)
+        self.visited_positions.add(current_pos)
+        
+        # Define possible directions: left(0), right(1), up(2), down(3)
+        directions = [(0, -1, 0), (0, 1, 1), (-1, 0, 2), (1, 0, 3)]  # (row_diff, col_diff, direction)
+        
+        # First try to continue in the same direction if possible
+        if self.last_direction is not None:
+            row_diff, col_diff, dir = directions[self.last_direction]
+            next_pos = (player.row + row_diff, player.col + col_diff)
+            if (0 <= next_pos[0] < len(player.grid) and 
+                0 <= next_pos[1] < len(player.grid[0]) and 
+                next_pos not in self.visited_positions and
+                (player.grid[next_pos[0]][next_pos[1]] == 'g' or 
+                 player.grid[next_pos[0]][next_pos[1]] == '-1')):
+                return self.last_direction
+        
+        # If can't continue in same direction, try other directions
+        # Prioritize horizontal movement (left/right) over vertical (up/down)
+        preferred_directions = [0, 1, 2, 3]  # left, right, up, down
+        for dir in preferred_directions:
+            row_diff, col_diff, _ = directions[dir]
+            next_pos = (player.row + row_diff, player.col + col_diff)
+            if (0 <= next_pos[0] < len(player.grid) and 
+                0 <= next_pos[1] < len(player.grid[0]) and 
+                next_pos not in self.visited_positions and
+                (player.grid[next_pos[0]][next_pos[1]] == 'g' or 
+                 player.grid[next_pos[0]][next_pos[1]] == '-1')):
+                return dir
+        
+        # If all directions are blocked, try to find any unvisited position
+        for dir in range(4):
+            row_diff, col_diff, _ = directions[dir]
+            next_pos = (player.row + row_diff, player.col + col_diff)
+            if (0 <= next_pos[0] < len(player.grid) and 
+                0 <= next_pos[1] < len(player.grid[0]) and
+                (player.grid[next_pos[0]][next_pos[1]] == 'g' or 
+                 player.grid[next_pos[0]][next_pos[1]] == '-1')):
+                return dir
+        
+        return None
 
     def goto(self, position:tuple):
         log(f"Attempting to navigate to position: {position}", "[GameClient]")
@@ -160,15 +209,26 @@ class GameClient(Client):
         else:
             log("No new resources found in current area", "[GameClient]")
 
-        # Try to find unexplored tiles ('-1')
-        from pathfinding import shortest_path_to_value
-        log("Searching for unexplored areas", "[GameClient]")
-        path, target = shortest_path_to_value(player.grid, current_position, '-1')
+        # Get next exploration direction
+        next_direction = self._get_next_exploration_direction(player)
         
-        if path is not None and len(path) > 0:
-            direction = path[0]
+        if next_direction is not None:
             direction_names = ["left", "right", "up", "down"]
-            log(f"Moving {direction_names[direction]} towards unexplored area", "[GameClient]")
-            self.move(direction)
+            log(f"Moving {direction_names[next_direction]} for exploration", "[GameClient]")
+            self.move(next_direction)
+            self.last_direction = next_direction
         else:
-            log("No unexplored areas found nearby", "[GameClient]") 
+            log("No valid exploration direction found, resetting visited positions", "[GameClient]")
+            # If we're stuck, reset visited positions to allow revisiting
+            self.visited_positions.clear()
+            # Try to find any unexplored tile
+            from pathfinding import shortest_path_to_value
+            path, target = shortest_path_to_value(player.grid, current_position, '-1')
+            if path is not None and len(path) > 0:
+                direction = path[0]
+                direction_names = ["left", "right", "up", "down"]
+                log(f"Moving {direction_names[direction]} towards unexplored area", "[GameClient]")
+                self.move(direction)
+                self.last_direction = direction
+            else:
+                log("No unexplored areas found nearby", "[GameClient]") 
