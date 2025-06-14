@@ -1,1 +1,0 @@
-0_ at: 28. status: PlayerStatus.WAITING_FOR_PLAYERS, store: []
