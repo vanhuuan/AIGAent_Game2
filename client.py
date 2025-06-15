@@ -88,7 +88,7 @@ class Client:
         self.player = self.receive_message()
         return self.player
     
-    def allow_collect_items(self, items=['w','f','c']):
+    def allow_collect_items(self, items=['w','c']):
         self.send_message(AllowCollectItemsMessage(items=items))
         allowed_items = self.receive_message()
         return allowed_items

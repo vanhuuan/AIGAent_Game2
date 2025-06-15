@@ -309,15 +309,49 @@ class GameWorkflow:
             return "Map not yet explored"
             
         map_str = "Full map state:\n"
+        # Add column numbers
+        map_str += "    " + " ".join(f"{i:2d}" for i in range(len(player.grid[0]))) + "\n"
+        
         for i in range(len(player.grid)):
-            row_str = ""
+            # Add row numbers
+            map_str += f"{i:2d} |"
             for j in range(len(player.grid[0])):
                 if i == player.row and j == player.col:
-                    row_str += "P "  # Player position
+                    map_str += " P "  # Player position
                 else:
                     cell = str(player.grid[i][j])
-                    row_str += cell + " "
-            map_str += row_str + "\n"
+                    # Format each cell with consistent width
+                    if cell == '-1':
+                        map_str += " ? "  # Unexplored
+                    elif cell == 'g':
+                        map_str += " . "  # Ground
+                    elif cell == 'r':
+                        map_str += " # "  # Rock
+                    elif cell == 'w':
+                        map_str += " W "  # Wood
+                    elif cell == 'c':
+                        map_str += " C "  # Cotton
+                    elif cell == 's':
+                        map_str += " S "  # Sword
+                    elif cell == 'a':
+                        map_str += " A "  # Armor
+                    elif cell.isdigit():
+                        map_str += f" {cell} "  # Other player
+                    else:
+                        map_str += f" {cell} "
+            map_str += "\n"
+            
+        # Add legend
+        map_str += "\nLegend:\n"
+        map_str += "P = Player position\n"
+        map_str += "? = Unexplored area\n"
+        map_str += ". = Ground (walkable)\n"
+        map_str += "# = Rock (obstacle)\n"
+        map_str += "W = Wood resource\n"
+        map_str += "C = Cotton resource\n"
+        map_str += "S = Sword item\n"
+        map_str += "A = Armor item\n"
+        map_str += "1-9 = Other players\n"
             
         return map_str
         
@@ -331,15 +365,51 @@ class GameWorkflow:
         visible_range = 5  # Show 5 cells in each direction
         
         map_str = "Current visible area (5x5 around player):\n"
+        # Add column numbers
+        start_col = max(0, player.col - visible_range)
+        end_col = min(len(player.grid[0]), player.col + visible_range + 1)
+        map_str += "    " + " ".join(f"{i:2d}" for i in range(start_col, end_col)) + "\n"
+        
         for i in range(max(0, player.row - visible_range), min(len(player.grid), player.row + visible_range + 1)):
-            row_str = ""
-            for j in range(max(0, player.col - visible_range), min(len(player.grid[0]), player.col + visible_range + 1)):
+            # Add row numbers
+            map_str += f"{i:2d} |"
+            for j in range(start_col, end_col):
                 if i == player.row and j == player.col:
-                    row_str += "P "  # Player position
+                    map_str += " P "  # Player position
                 else:
                     cell = str(player.grid[i][j])
-                    row_str += cell + " "
-            map_str += row_str + "\n"
+                    # Format each cell with consistent width
+                    if cell == '-1':
+                        map_str += " ? "  # Unexplored
+                    elif cell == 'g':
+                        map_str += " . "  # Ground
+                    elif cell == 'r':
+                        map_str += " # "  # Rock
+                    elif cell == 'w':
+                        map_str += " W "  # Wood
+                    elif cell == 'c':
+                        map_str += " C "  # Cotton
+                    elif cell == 's':
+                        map_str += " S "  # Sword
+                    elif cell == 'a':
+                        map_str += " A "  # Armor
+                    elif cell.isdigit():
+                        map_str += f" {cell} "  # Other player
+                    else:
+                        map_str += f" {cell} "
+            map_str += "\n"
+            
+        # Add legend
+        map_str += "\nLegend:\n"
+        map_str += "P = Player position\n"
+        map_str += "? = Unexplored area\n"
+        map_str += ". = Ground (walkable)\n"
+        map_str += "# = Rock (obstacle)\n"
+        map_str += "W = Wood resource\n"
+        map_str += "C = Cotton resource\n"
+        map_str += "S = Sword item\n"
+        map_str += "A = Armor item\n"
+        map_str += "1-9 = Other players\n"
             
         return map_str
         
@@ -385,8 +455,6 @@ class GameWorkflow:
         has_other_players, other_player_positions = self._check_for_other_players(self.game_state.client)
         if has_other_players:
             log(f"Other players detected at positions: {other_player_positions}", "[GameWorkflow]")
-            # Calculate direction away from other players
-            # This will be handled by the LLM with the updated prompt
         
         # Update visited positions
         current_pos = (player.row, player.col)
@@ -400,6 +468,9 @@ class GameWorkflow:
         cotton_needed = max(0, self.game_state.win_condition.get('cotton', 0) - 
                            player.store.count('c') - 
                            player.items_on_hand.count('c'))
+        
+        # Get fabric to cotton ratio from win condition
+        fabric_to_cotton_ratio = self.game_state.win_condition.get('cotton_per_fabric', 2)
         
         # Prepare the input for the LLM
         last_event_task = self.game_state.event_tasks[0] if self.game_state.event_tasks else 'None'
@@ -418,15 +489,27 @@ class GameWorkflow:
             status=player.status.value,
             wood_count=player.store.count('w'),
             cotton_count=player.store.count('c'),
-            fabric_count=player.store.count('f'),
+            fabric_count=player.store.count('fa'),
             last_event_task=last_event_task,
             full_map=self._format_full_map(self.game_state.client),
             current_visible_map=self._format_visible_map(self.game_state.client),
             previous_position=self.last_position if self.last_position else 'None',
             last_action=self.last_action if self.last_action else 'None',
             last_direction=self.last_direction if self.last_direction else 'None',
-            visited_positions=sorted(list(self.visited_positions))
+            visited_positions=sorted(list(self.visited_positions)),
+            fabric_to_cotton_ratio=fabric_to_cotton_ratio
         )
+        
+        # Write the prompt to a file
+        timestamp = time.strftime("%Y%m%d_%H%M%S")
+        prompt_filename = f"prompts/prompt_{timestamp}.txt"
+        os.makedirs("prompts", exist_ok=True)
+        with open(prompt_filename, "w", encoding="utf-8") as f:
+            f.write("=== System Prompt ===\n")
+            f.write(SYSTEM_PROMPTING)
+            f.write("\n\n=== User Prompt ===\n")
+            f.write(prompt)
+        log(f"Prompt saved to {prompt_filename}", "[GameWorkflow]")
         
         try:
             log("Calling OpenAI API for decision making", "[GameWorkflow]")
@@ -443,6 +526,11 @@ class GameWorkflow:
             # Extract the response content
             content = response.choices[0].message.content
             log(f"LLM response: {content}", "[GameWorkflow]")
+            
+            # Write the response to the same file
+            with open(prompt_filename, "a", encoding="utf-8") as f:
+                f.write("\n\n=== LLM Response ===\n")
+                f.write(content)
             
             # Parse the JSON response
             try:
@@ -466,18 +554,18 @@ class GameWorkflow:
                 try:
                     return GameAction[action_name]
                 except KeyError:
-                    log(f"Invalid action name: {action_name}, defaulting to EXPLORE", "[GameWorkflow]", level="WARNING")
+                    log(f"Invalid action name: {action_name}, defaulting to EXPLORE", "[GameWorkflow]")
                     return GameAction.EXPLORE
                     
             except json.JSONDecodeError as e:
-                log(f"Error parsing JSON response: {e}", "[GameWorkflow]", level="ERROR")
+                log(f"Error parsing JSON response: {e}", "[GameWorkflow]")
                 log(f"Raw response: {content}", "[GameWorkflow]")
                 
                 # Fall back to rule-based decision making
                 return self._rule_based_decision()
                 
         except Exception as e:
-            log(f"Error calling OpenAI API: {e}", "[GameWorkflow]", level="ERROR")
+            log(f"Error calling OpenAI API: {e}", "[GameWorkflow]")
             
             # Fall back to rule-based decision making
             return self._rule_based_decision()

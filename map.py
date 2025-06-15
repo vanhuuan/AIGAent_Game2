@@ -7,7 +7,7 @@ import enums
 
 map_static_items = {
     'g': 'Ground', # players can stand on it
-    'f': 'Food', # health (HP)'
+    'r': 'Rock', # health (HP)'
     'w': 'Wood', # Use to build boats,
     'c': 'Cotton', # Use to craft fabric',
 }
@@ -155,7 +155,7 @@ class Map():
             c = random.randint(Config.N_COL //2  - 1 , Config.N_COL //2 + 1)
             r = random.randint(Config.N_ROW //2  - 4 , Config.N_ROW //2 + 4)
             
-            self.grid[r-h:r+h, c-w:c+w] = 'f'
+            self.grid[r-h:r+h, c-w:c+w] = 'r'
 
         # random wood
         for i in range(Config.MAP_NUMBER_WOOD):

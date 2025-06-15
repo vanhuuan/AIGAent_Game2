@@ -45,31 +45,99 @@ class GameClient(Client):
         # Define possible directions: left(0), right(1), up(2), down(3)
         directions = [(0, -1, 0), (0, 1, 1), (-1, 0, 2), (1, 0, 3)]  # (row_diff, col_diff, direction)
         
-        # First try to continue in the same direction if possible
-        if self.last_direction is not None:
-            row_diff, col_diff, dir = directions[self.last_direction]
-            next_pos = (player.row + row_diff, player.col + col_diff)
-            if (0 <= next_pos[0] < len(player.grid) and 
-                0 <= next_pos[1] < len(player.grid[0]) and 
-                next_pos not in self.visited_positions and
-                (player.grid[next_pos[0]][next_pos[1]] == 'g' or 
-                 player.grid[next_pos[0]][next_pos[1]] == '-1')):
-                return self.last_direction
+        # First check if there are any resources in the visible area
+        visible_range = 5
+        for i in range(max(0, player.row - visible_range), min(len(player.grid), player.row + visible_range + 1)):
+            for j in range(max(0, player.col - visible_range), min(len(player.grid[0]), player.col + visible_range + 1)):
+                cell = str(player.grid[i][j])
+                if cell in ['w', 'c', 's', 'a']:  # Found a resource
+                    # Calculate direction to move towards the resource
+                    row_diff = i - player.row
+                    col_diff = j - player.col
+                    if row_diff != 0:
+                        return 2 if row_diff < 0 else 3  # up or down
+                    if col_diff != 0:
+                        return 0 if col_diff < 0 else 1  # left or right
         
-        # If can't continue in same direction, try other directions
-        # Prioritize horizontal movement (left/right) over vertical (up/down)
-        preferred_directions = [0, 1, 2, 3]  # left, right, up, down
-        for dir in preferred_directions:
+        # If we have both wood and cotton positions known, prioritize collecting them
+        if len(self.entity_positions['w']) > 0 and len(self.entity_positions['c']) > 0:
+            # If we're carrying items, go home
+            if player.items_on_hand:
+                home_row, home_col = player.home_row, player.home_col
+                row_diff = home_row - player.row
+                col_diff = home_col - player.col
+                if row_diff != 0:
+                    return 2 if row_diff < 0 else 3  # up or down
+                if col_diff != 0:
+                    return 0 if col_diff < 0 else 1  # left or right
+            
+            # If not carrying items, go to the nearest resource
+            wood_pos = self.entity_positions['w'][0]
+            cotton_pos = self.entity_positions['c'][0]
+            
+            # Calculate distances to both resources
+            wood_dist = abs(wood_pos[0] - player.row) + abs(wood_pos[1] - player.col)
+            cotton_dist = abs(cotton_pos[0] - player.row) + abs(cotton_pos[1] - player.col)
+            
+            # Go to the closer resource
+            target_pos = wood_pos if wood_dist <= cotton_dist else cotton_pos
+            row_diff = target_pos[0] - player.row
+            col_diff = target_pos[1] - player.col
+            
+            if row_diff != 0:
+                return 2 if row_diff < 0 else 3  # up or down
+            if col_diff != 0:
+                return 0 if col_diff < 0 else 1  # left or right
+        
+        # If no resources found or not enough resources known, continue with exploration
+        # Check each direction for unexplored areas within visible range
+        unexplored_directions = []
+        for dir, (row_diff, col_diff, _) in enumerate(directions):
+            # Check if there's any unexplored area in this direction within visible range
+            has_unexplored = False
+            for step in range(1, visible_range + 1):
+                check_row = player.row + (row_diff * step)
+                check_col = player.col + (col_diff * step)
+                
+                # Check if position is within grid bounds
+                if not (0 <= check_row < len(player.grid) and 0 <= check_col < len(player.grid[0])):
+                    break
+                    
+                # Check if position is unexplored
+                if player.grid[check_row][check_col] == '-1':
+                    has_unexplored = True
+                    break
+                    
+                # If we hit a wall or obstacle, stop checking this direction
+                if player.grid[check_row][check_col] not in ['-1', 'g']:
+                    break
+            
+            if has_unexplored:
+                unexplored_directions.append(dir)
+        
+        # If we found unexplored directions, choose one
+        if unexplored_directions:
+            # Try to continue in the same direction if possible
+            if self.last_direction in unexplored_directions:
+                return self.last_direction
+            # Otherwise pick the first unexplored direction
+            return unexplored_directions[0]
+        
+        # If no unexplored directions found, try to find any unvisited position
+        for dir in range(4):
             row_diff, col_diff, _ = directions[dir]
             next_pos = (player.row + row_diff, player.col + col_diff)
             if (0 <= next_pos[0] < len(player.grid) and 
-                0 <= next_pos[1] < len(player.grid[0]) and 
-                next_pos not in self.visited_positions and
+                0 <= next_pos[1] < len(player.grid[0]) and
                 (player.grid[next_pos[0]][next_pos[1]] == 'g' or 
                  player.grid[next_pos[0]][next_pos[1]] == '-1')):
                 return dir
         
-        # If all directions are blocked, try to find any unvisited position
+        # If completely stuck, reset visited positions and try again
+        self.visited_positions.clear()
+        self.visited_positions.add(current_pos)
+        
+        # Try to find any unexplored tile
         for dir in range(4):
             row_diff, col_diff, _ = directions[dir]
             next_pos = (player.row + row_diff, player.col + col_diff)
@@ -114,6 +182,16 @@ class GameClient(Client):
             log("Already carrying wood, returning home", "[GameClient]")
             self.go_home()
         else:
+            # First check visible area for wood
+            visible_range = 5
+            for i in range(max(0, player.row - visible_range), min(len(player.grid), player.row + visible_range + 1)):
+                for j in range(max(0, player.col - visible_range), min(len(player.grid[0]), player.col + visible_range + 1)):
+                    if player.grid[i][j] == 'w':
+                        pos = (i, j)
+                        if pos not in self.entity_positions['w']:
+                            self.entity_positions['w'].append(pos)
+                            log(f"Added new wood at {pos} to known positions", "[GameClient]")
+            
             if len(self.entity_positions['w']) > 0:
                 wood_position = self.entity_positions['w'][0]
                 log(f"Found wood at {wood_position}, moving to collect", "[GameClient]")
@@ -128,6 +206,16 @@ class GameClient(Client):
             log("Already carrying cotton, returning home", "[GameClient]")
             self.go_home()
         else:
+            # First check visible area for cotton
+            visible_range = 5
+            for i in range(max(0, player.row - visible_range), min(len(player.grid), player.row + visible_range + 1)):
+                for j in range(max(0, player.col - visible_range), min(len(player.grid[0]), player.col + visible_range + 1)):
+                    if player.grid[i][j] == 'c':
+                        pos = (i, j)
+                        if pos not in self.entity_positions['c']:
+                            self.entity_positions['c'].append(pos)
+                            log(f"Added new cotton at {pos} to known positions", "[GameClient]")
+            
             if len(self.entity_positions['c']) > 0:
                 cotton_position = self.entity_positions['c'][0]
                 log(f"Found cotton at {cotton_position}, moving to collect", "[GameClient]")
@@ -144,7 +232,11 @@ class GameClient(Client):
             player = self.get_player()
             if player.row == sword_position[0] and player.col == sword_position[1]:
                 log(f"Reached sword position, removing from known positions", "[GameClient]")
+                # Remove sword from entity positions
                 self.entity_positions['s'] = []
+                # Update the grid to reflect the collected sword
+                if player.grid[player.row][player.col] == 's':
+                    player.grid[player.row][player.col] = 'g'
         else:
             log("No sword positions known", "[GameClient]")
 
@@ -157,7 +249,11 @@ class GameClient(Client):
             player = self.get_player()
             if player.row == armor_position[0] and player.col == armor_position[1]:
                 log(f"Reached armor position, removing from known positions", "[GameClient]")
+                # Remove armor from entity positions
                 self.entity_positions['a'] = []
+                # Update the grid to reflect the collected armor
+                if player.grid[player.row][player.col] == 'a':
+                    player.grid[player.row][player.col] = 'g'
         else:
             log("No armor positions known", "[GameClient]")
 
@@ -188,27 +284,16 @@ class GameClient(Client):
         
         # Update entity positions from surrounding resources
         log("Scanning surroundings for resources", "[GameClient]")
-        resources_around = find_adjacent_resources(player.grid, player.row, player.col)
+        visible_range = 5
+        for i in range(max(0, player.row - visible_range), min(len(player.grid), player.row + visible_range + 1)):
+            for j in range(max(0, player.col - visible_range), min(len(player.grid[0]), player.col + visible_range + 1)):
+                cell = str(player.grid[i][j])
+                if cell in ['w', 'c', 's', 'a']:  # Found a resource
+                    pos = (i, j)
+                    if pos not in self.entity_positions[cell]:
+                        self.entity_positions[cell].append(pos)
+                        log(f"Added new {cell} resource at {pos} to known positions", "[GameClient]")
         
-        # Track newly discovered resources
-        new_resources_found = False
-        
-        for key in resources_around.keys():
-            # Skip rocks as they're not collectible
-            if key == 'r':
-                continue
-                
-            for value in resources_around[key]:
-                if value not in self.entity_positions[key]:
-                    self.entity_positions[key].append(value)
-                    new_resources_found = True
-                    log(f"Added new {key} resource at {value} to known positions", "[GameClient]")
-        
-        if new_resources_found:
-            log("New resources discovered during exploration", "[GameClient]")
-        else:
-            log("No new resources found in current area", "[GameClient]")
-
         # Get next exploration direction
         next_direction = self._get_next_exploration_direction(player)
         

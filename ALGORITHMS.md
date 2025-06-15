@@ -71,7 +71,7 @@ This algorithm scans a 5×5 grid area centered on the player to discover resourc
 def find_adjacent_resources(grid, row, col):
     # Dictionary to store found resources
     adjacent_resources = {
-        'w': [], 'c': [], 'f': [], 's': [], 'a': [],
+        'w': [], 'c': [], 'r': [], 's': [], 'a': [],
         '0': [], '1': [], '2': [], '3': [], '4': [], '5': [], '6': [],
     }
     

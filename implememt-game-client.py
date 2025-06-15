@@ -175,7 +175,7 @@ def find_adjacent_resources(grid: np.array, row: int, col: int):
     adjacent_resources = {
         'w': [],
         'c': [],
-        'f': [],
+        'r': [],
         's': [],
         'a': [],
         '0': [],
@@ -233,7 +233,7 @@ class GameClient(Client):
         self.entity_positions: dict = {
             'w': [],
             'c': [],
-            'f': [],
+            'r': [],
             's': [],
             'a': [], 
             '0': [],
