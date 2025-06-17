@@ -6,6 +6,7 @@ from dotenv import load_dotenv
 import sys
 import os
 import time
+import argparse
 from logs import log
 
 # Ensure the root directory is in the Python path
@@ -19,18 +20,32 @@ from agents.event_handler_agent import EventHandlerAgent
 # Enable nested asyncio for Jupyter notebooks support
 nest_asyncio.apply()
 
+def parse_args():
+    """Parse command line arguments."""
+    parser = argparse.ArgumentParser(description='Run the game agent with specified name.')
+    parser.add_argument('--name', type=str, help='Name of the player')
+    return parser.parse_args()
+
 async def main():
     """Main entry point for the game agent."""
     try:
+        # Parse command line arguments
+        args = parse_args()
+        
         # Load environment variables (including OpenAI API key)
         load_dotenv()
         if not os.environ.get("OPENAI_API_KEY"):
             log("Warning: OPENAI_API_KEY not found in environment variables", "[Main]")
             log("LLM-based decision making will fall back to rule-based approach", "[Main]")
         
-        # Generate a random player name
-        fake = Faker()
-        player_name = fake.first_name()
+        # Get player name from command line args, environment variable, or generate random
+        if args.name:
+            player_name = args.name
+        elif os.environ.get("USER_NAME"):
+            player_name = os.environ.get("USER_NAME")
+        else:
+            fake = Faker()
+            player_name = fake.first_name()
         
         log(f"Starting game with player name: {player_name}", "[Main]")
         

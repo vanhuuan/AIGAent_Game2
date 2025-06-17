@@ -62,6 +62,13 @@ class TakeMission(BaseNode[GameState]):
         ctx.state.cotton_need = result.cotton_need
         ctx.state.fabric_to_cotton_ratio = result.fabric_to_cotton_ratio
 
+        # Set win condition on the client
+        client.set_win_condition(
+            wood=result.wood_need,
+            fabric=result.cotton_need // result.fabric_to_cotton_ratio,  # Convert cotton need to fabric need
+            cotton_per_fabric=result.fabric_to_cotton_ratio
+        )
+
         log(f"Mission requirements: {result.wood_need} wood, {result.cotton_need} cotton, fabric ratio: {result.fabric_to_cotton_ratio}", "[Workflow]")
         log("Mission acquisition complete, waiting for game to start", "[Workflow]")
 
@@ -432,7 +439,17 @@ class GameWorkflow:
         
     def decide_next_action(self) -> GameAction:
         """Determine the next action based on current game state using LLM."""
-        log("Deciding next action using LLM...", "[GameWorkflow]")
+        log("Deciding next action...", "[GameWorkflow]")
+        
+        # Get player information
+        player = self.game_state.client.get_player()
+        client = self.game_state.client
+        
+        # Check if we're currently in a "go home" task and not yet at home
+        if (self.last_action == "GO_HOME" and 
+            (player.row != player.home_row or player.col != player.home_col)):
+            log("Still going home from previous task, continuing GO_HOME", "[GameWorkflow]")
+            return GameAction.GO_HOME
         
         # First, check if there are any event tasks to handle (high priority)
         if self.game_state.event_tasks:
@@ -442,17 +459,27 @@ class GameWorkflow:
             if event_task.get("type") == "go_home":
                 log("Priority action: GO_HOME due to event", "[GameWorkflow]")
                 return GameAction.GO_HOME
+
+            if event_task.get("type") == "win_condition":
+                # Set win condition on the client
+                client = self.game_state.client
+                client.set_win_condition(
+                    wood=event_task.get("wood", 0),
+                    fabric=event_task.get("fabric", 0),
+                    cotton_per_fabric=event_task.get("cotton_per_fabric", 2)
+                )
+                log(f"Updated client win condition: wood={event_task.get('wood', 0)}, fabric={event_task.get('fabric', 0)}, cotton_per_fabric={event_task.get('cotton_per_fabric', 2)}", "[GameWorkflow]")
+                # Remove the win condition task as it's been processed
+                self.game_state.event_tasks.pop(0)
                 
             elif event_task.get("type") == "collect_reward":
                 log(f"Priority action: COLLECT_REWARD at {event_task.get('position')}", "[GameWorkflow]")
                 return GameAction.COLLECT_REWARD
         
-        # Get player information
-        player = self.game_state.client.get_player()
-        entity_positions = self.game_state.client.entity_positions
+        entity_positions = client.entity_positions
         
         # Check for other players in visible area
-        has_other_players, other_player_positions = self._check_for_other_players(self.game_state.client)
+        has_other_players, other_player_positions = self._check_for_other_players(client)
         if has_other_players:
             log(f"Other players detected at positions: {other_player_positions}", "[GameWorkflow]")
         
@@ -460,25 +487,72 @@ class GameWorkflow:
         current_pos = (player.row, player.col)
         self.visited_positions.add(current_pos)
         
-        # Calculate resource needs
+        # Calculate resource needs using our local storage
         wood_needed = max(0, self.game_state.win_condition.get('wood', 0) - 
-                         player.store.count('w') - 
-                         player.items_on_hand.count('w'))
+                         client.get_storage_count('w') - 
+                         client.get_items_on_hand_count('w'))
                          
         cotton_needed = max(0, self.game_state.win_condition.get('cotton', 0) - 
-                           player.store.count('c') - 
-                           player.items_on_hand.count('c'))
+                           client.get_storage_count('c') - 
+                           client.get_items_on_hand_count('c'))
         
         # Get fabric to cotton ratio from win condition
         fabric_to_cotton_ratio = self.game_state.win_condition.get('cotton_per_fabric', 2)
-        
+
+        # Check if we're in exploration mode and if anything new was found
+        if self.last_action == 'EXPLORE':
+            # Check if any new resources were found in the visible area
+            visible_range = 5
+            new_resources_found = False
+            for i in range(max(0, player.row - visible_range), min(len(player.grid), player.row + visible_range + 1)):
+                for j in range(max(0, player.col - visible_range), min(len(player.grid[0]), player.col + visible_range + 1)):
+                    cell = str(player.grid[i][j])
+                    if cell in ['w', 'c', 's', 'a']:
+                        pos = (i, j)
+                        if cell == 'w' and pos not in entity_positions.get('w', []):
+                            new_resources_found = True
+                            break
+                        elif cell == 'c' and pos not in entity_positions.get('c', []):
+                            new_resources_found = True
+                            break
+                        elif cell == 's' and pos not in entity_positions.get('s', []):
+                            new_resources_found = True
+                            break
+                        elif cell == 'a' and pos not in entity_positions.get('a', []):
+                            new_resources_found = True
+                            break
+                if new_resources_found:
+                    break
+
+            # If no new resources found and we're in exploration mode, continue exploring
+            if not new_resources_found and not has_other_players:
+                log("No new resources found, continuing exploration", "[GameWorkflow]")
+                return GameAction.EXPLORE
+
+        # If we reach here, either we found new resources or we're not in exploration mode
         # Prepare the input for the LLM
         last_event_task = self.game_state.event_tasks[0] if self.game_state.event_tasks else 'None'
+        
+        # Format storage information
+        storage_info = {
+            'w': client.get_storage_count('w'),
+            'c': client.get_storage_count('c'),
+            'fa': client.get_storage_count('fa'),
+            's': client.get_storage_count('s'),
+            'a': client.get_storage_count('a')
+        }
+        
+        # Calculate equipment status (worn/equipped)
+        sword_equipped = client.get_items_on_hand_count('s') > 0
+        armor_equipped = client.get_items_on_hand_count('a') > 0
+        
         prompt = SYSTEM_PROMPTING.format(
             row=player.row,
             col=player.col,
-            inventory=player.store,
-            items_on_hand=player.items_on_hand,
+            home_row=player.home_row,
+            home_col=player.home_col,
+            storage=storage_info,
+            items_on_hand=client.items_on_hand,
             wood_needed=wood_needed,
             cotton_needed=cotton_needed,
             wood_positions=entity_positions.get('w', []),
@@ -487,17 +561,22 @@ class GameWorkflow:
             armor_positions=entity_positions.get('a', []),
             event_tasks=self.game_state.event_tasks,
             status=player.status.value,
-            wood_count=player.store.count('w'),
-            cotton_count=player.store.count('c'),
-            fabric_count=player.store.count('fa'),
+            wood_count=client.get_storage_count('w'),
+            cotton_count=client.get_storage_count('c'),
+            fabric_count=client.get_storage_count('fa'),
+            sword_count=client.get_storage_count('s'),
+            armor_count=client.get_storage_count('a'),
+            sword_equipped=sword_equipped,
+            armor_equipped=armor_equipped,
             last_event_task=last_event_task,
-            full_map=self._format_full_map(self.game_state.client),
-            current_visible_map=self._format_visible_map(self.game_state.client),
+            full_map=self._format_full_map(client),
+            current_visible_map=self._format_visible_map(client),
             previous_position=self.last_position if self.last_position else 'None',
             last_action=self.last_action if self.last_action else 'None',
             last_direction=self.last_direction if self.last_direction else 'None',
             visited_positions=sorted(list(self.visited_positions)),
-            fabric_to_cotton_ratio=fabric_to_cotton_ratio
+            fabric_to_cotton_ratio=fabric_to_cotton_ratio,
+            max_storage=Config.MAX_STORAGE_CAPACITY
         )
         
         # Write the prompt to a file
@@ -505,8 +584,6 @@ class GameWorkflow:
         prompt_filename = f"prompts/prompt_{timestamp}.txt"
         os.makedirs("prompts", exist_ok=True)
         with open(prompt_filename, "w", encoding="utf-8") as f:
-            f.write("=== System Prompt ===\n")
-            f.write(SYSTEM_PROMPTING)
             f.write("\n\n=== User Prompt ===\n")
             f.write(prompt)
         log(f"Prompt saved to {prompt_filename}", "[GameWorkflow]")

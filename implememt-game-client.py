@@ -477,7 +477,7 @@ class TakeMission(BaseNode[GameState]):
         client = ctx.state.client 
 
         player = client.get_player()
-        while not player.message:
+        while not player.meget_plssage:
             time.sleep(1)
             player = client.get_player()
 
@@ -594,7 +594,8 @@ class Observeration(BaseNode[GameState]):
             if player.status == PlayerStatus.WIN:
                 log('Player win the game', '[Observeration]')
                 return Action(observation_result="WIN")
-            
+
+            log(player.items_on_hand, '[Action]')
             current_wood_need = ctx.state.wood_need - player.store.count('w')
             current_cotton_need = ctx.state.cotton_need - player.store.count('c') * ctx.state.fabric_to_cotton_ratio
             position_of_woods = client.entity_positions['w']
@@ -652,7 +653,7 @@ async def create_client_game(name: str):
         client= None, 
         calculate_win_condition_agent= CalculateWinConditionAgent(),
         resource= Resource()
-    )  
+    )
     await game_graph.run(CreateGame(), state=state) 
 
 import asyncio

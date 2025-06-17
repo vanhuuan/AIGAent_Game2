@@ -100,7 +100,7 @@ class GameBoard():
         # 
         images['maps']['f-a'] = load_image(Path('img/maps/f-armor.png'), self.CELL_SIZE, self.CELL_SIZE)
         images['maps']['f-c'] = load_image(Path('img/maps/f-cotton.png'), self.CELL_SIZE, self.CELL_SIZE)
-        images['maps']['f-f'] = load_image(Path('img/maps/f-food.png'), self.CELL_SIZE, self.CELL_SIZE)
+        images['maps']['f-r'] = load_image(Path('img/maps/f-food.png'), self.CELL_SIZE, self.CELL_SIZE)
         images['maps']['f-g'] = load_image(Path('img/maps/f-grass.png'), self.CELL_SIZE, self.CELL_SIZE)
         images['maps']['f-s'] = load_image(Path('img/maps/f-sword.png'), self.CELL_SIZE, self.CELL_SIZE)
         images['maps']['f-w'] = load_image(Path('img/maps/f-wood.png'), self.CELL_SIZE, self.CELL_SIZE)
