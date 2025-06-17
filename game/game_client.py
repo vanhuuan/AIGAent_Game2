@@ -211,6 +211,28 @@ class GameClient(Client):
         
         return player
 
+    def _is_walkable(self, cell_value) -> bool:
+        """Check if a cell is walkable, avoiding other players and obstacles."""
+        cell_str = str(cell_value)
+        
+        # Walkable tiles: ground, unexplored, sword, armor
+        if cell_str in ['g', '-1', 's', 'a']:
+            return True
+            
+        # Avoid other players (numbers 1-9)
+        if cell_str.isdigit() and cell_str != '0':
+            return False
+            
+        # Avoid obstacles like rocks
+        if cell_str in ['r', '#']:
+            return False
+            
+        # Avoid resources that we can't walk on (wood, cotton)
+        if cell_str in ['w', 'c']:
+            return False
+            
+        return False
+
     def _is_repeating_movement(self, next_pos: tuple[int, int]) -> bool:
         """Check if the next position would create a repeating pattern or standing still."""
         if len(self.last_positions) < 1:
@@ -413,7 +435,7 @@ class GameClient(Client):
             # Check if the next position is valid, walkable, and unexplored (avoid resources)
             if (0 <= next_row < Config.N_ROW and 
                 0 <= next_col < Config.N_COL and
-                player.grid[next_row][next_col] in ['g', '-1', 's', 'a'] and  # Only walkable tiles
+                self._is_walkable(player.grid[next_row][next_col]) and  # Only walkable tiles
                 next_pos not in self.visited_positions):
                 return direction
         
@@ -434,7 +456,7 @@ class GameClient(Client):
             
             if (0 <= next_row < Config.N_ROW and 
                 0 <= next_col < Config.N_COL and
-                player.grid[next_row][next_col] in ['g', '-1', 's', 'a']):  # Only walkable tiles
+                self._is_walkable(player.grid[next_row][next_col])):  # Only walkable tiles
                 return direction
         
         return 0  # Default to moving left if no other option
@@ -713,7 +735,7 @@ class GameClient(Client):
             # Check if the next position is valid and walkable (avoid resources)
             if (0 <= next_row < len(player.grid) and 
                 0 <= next_col < len(player.grid[0]) and
-                player.grid[next_row][next_col] in ['g', '-1', 's', 'a']):  # Only walkable tiles
+                self._is_walkable(player.grid[next_row][next_col])):  # Only walkable tiles
                 direction_names = ["left", "right", "up", "down"]
                 log(f"Moving {direction_names[next_direction]} for exploration", "[GameClient]")
                 self.move(next_direction)
@@ -771,7 +793,7 @@ class GameClient(Client):
             # Check if the next position is valid and walkable (avoid resources)
             if (0 <= next_row < Config.N_ROW and 
                 0 <= next_col < Config.N_COL and
-                player.grid[next_row][next_col] in ['g', '-1', 's', 'a']):  # Only walkable tiles
+                self._is_walkable(player.grid[next_row][next_col])):  # Only walkable tiles
                 direction_names = ["left", "right", "up", "down"]
                 log(f"Moving {direction_names[direction]} as alternative direction", "[GameClient]")
                 self.move(direction)
@@ -792,7 +814,7 @@ class GameClient(Client):
             if (not self._is_repeating_movement(next_pos) and
                 0 <= next_row < Config.N_ROW and 
                 0 <= next_col < Config.N_COL and
-                player.grid[next_row][next_col] in ['g', '-1', 's', 'a']):
+                self._is_walkable(player.grid[next_row][next_col])):
                 direction_names = ["left", "right", "up", "down"]
                 log(f"Moving {direction_names[direction]} towards unexplored area", "[GameClient]")
                 self.move(direction)
