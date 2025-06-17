@@ -92,9 +92,6 @@ class WaitingStartGame(BaseNode[GameState]):
 
         log('Game started. Beginning gameplay', "[Workflow]")
 
-        log("Setting up resource collection permissions", "[Workflow]")
-        client.allow_collect_items(items=['w', 'c'])
-
         log("Starting initial exploration", "[Workflow]")
         return Action(observation_result=ObservationResult.EXPLORE)
 
@@ -564,8 +561,6 @@ class GameWorkflow:
             wood_count=client.get_storage_count('w'),
             cotton_count=client.get_storage_count('c'),
             fabric_count=client.get_storage_count('fa'),
-            sword_count=client.get_storage_count('s'),
-            armor_count=client.get_storage_count('a'),
             sword_equipped=sword_equipped,
             armor_equipped=armor_equipped,
             last_event_task=last_event_task,

@@ -142,6 +142,9 @@ class GameClient(Client):
                 if wood_needed == 0 and cotton_needed == 0 and fabric_needed == 0:
                     log("WIN CONDITION MET! All required resources stored at home!", "[GameClient]")
                 
+                # Update allowed items only when at home, after all calculations
+                self.update_allowed_items()
+                
             self.is_at_home = True
         else:
             self.is_at_home = False
@@ -151,9 +154,6 @@ class GameClient(Client):
         for item, count in self.storage.items():
             player.store.extend([item] * count)
         player.items_on_hand = self.items_on_hand.copy()
-        
-        # Update allowed items based on what's still needed
-        self.update_allowed_items()
         
         return player
 
@@ -212,12 +212,24 @@ class GameClient(Client):
         return player
 
     def _is_repeating_movement(self, next_pos: tuple[int, int]) -> bool:
-        """Check if the next position would create a repeating pattern."""
+        """Check if the next position would create a repeating pattern or standing still."""
+        if len(self.last_positions) < 1:
+            return False
+        
+        # Get current position
+        current_pos = self.last_positions[-1] if self.last_positions else None
+        
+        # Check if we're standing still (not moving)
+        if current_pos and next_pos == current_pos:
+            log("Detected standing still, avoiding stationary movement", "[GameClient]")
+            return True
+            
         if len(self.last_positions) < 2:
             return False
             
         # Check if we're moving back to a position we were at recently
         if next_pos in self.last_positions:
+            log(f"Detected revisiting recent position {next_pos}", "[GameClient]")
             return True
             
         # Check for back-and-forth movement in the same row
@@ -229,6 +241,7 @@ class GameClient(Client):
             if (last_pos[0] == second_last_pos[0] and  # Same row
                 next_pos[0] == last_pos[0] and  # Still in same row
                 abs(next_pos[1] - last_pos[1]) == abs(last_pos[1] - second_last_pos[1])):  # Same distance
+                log(f"Detected back-and-forth movement in row {last_pos[0]}", "[GameClient]")
                 return True
                 
         return False
@@ -592,14 +605,7 @@ class GameClient(Client):
         
         # Check if already carrying sword
         if self.get_items_on_hand_count('s') > 0:
-            log("Already carrying sword, returning home to store", "[GameClient]")
-            self.go_home()
-            return
-            
-        # Check if inventory is full
-        if len(self.items_on_hand) >= 4:
-            log("Inventory full, returning home", "[GameClient]")
-            self.go_home()
+            log("Already equipped with sword", "[GameClient]")
             return
             
         if len(self.entity_positions['s']) > 0:
@@ -608,13 +614,11 @@ class GameClient(Client):
             if player.row == sword_position[0] and player.col == sword_position[1]:
                 # We're on the sword, collect it
                 if self.collect_item('s'):
-                    log(f"Collected sword at {sword_position}, returning home to store", "[GameClient]")
-                    # Remove sword from entity positions
-                    self.entity_positions['s'] = []
+                    log(f"Equipped sword at {sword_position}", "[GameClient]")
+                    # Remove this specific sword position from entity positions
+                    self.entity_positions['s'].remove(sword_position)
                     # Update the grid to reflect the collected sword
                     player.grid[player.row][player.col] = 'g'
-                    # Immediately return home to store
-                    self.go_home()
             else:
                 # Move to the sword position
                 log(f"Moving to sword at {sword_position}", "[GameClient]")
@@ -629,14 +633,7 @@ class GameClient(Client):
         
         # Check if already carrying armor
         if self.get_items_on_hand_count('a') > 0:
-            log("Already carrying armor, returning home to store", "[GameClient]")
-            self.go_home()
-            return
-            
-        # Check if inventory is full
-        if len(self.items_on_hand) >= 4:
-            log("Inventory full, returning home", "[GameClient]")
-            self.go_home()
+            log("Already equipped with armor", "[GameClient]")
             return
             
         if len(self.entity_positions['a']) > 0:
@@ -645,13 +642,11 @@ class GameClient(Client):
             if player.row == armor_position[0] and player.col == armor_position[1]:
                 # We're on the armor, collect it
                 if self.collect_item('a'):
-                    log(f"Collected armor at {armor_position}, returning home to store", "[GameClient]")
-                    # Remove armor from entity positions
-                    self.entity_positions['a'] = []
+                    log(f"Equipped armor at {armor_position}", "[GameClient]")
+                    # Remove this specific armor position from entity positions
+                    self.entity_positions['a'].remove(armor_position)
                     # Update the grid to reflect the collected armor
                     player.grid[player.row][player.col] = 'g'
-                    # Immediately return home to store
-                    self.go_home()
             else:
                 # Move to the armor position
                 log(f"Moving to armor at {armor_position}", "[GameClient]")

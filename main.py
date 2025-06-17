@@ -53,10 +53,6 @@ async def main():
         client = GameClient(player_name)
         log("Game client initialized", "[Main]")
         
-        # Allow the client to collect wood and cotton (not rocks as they're uncollectible)
-        client.allow_collect_items(items=['w', 'c'])
-        log("Set allowed items for collection: wood, cotton", "[Main]")
-        
         # Initialize the event handler
         event_handler = EventHandlerAgent()
         log("Event handler initialized", "[Main]")
