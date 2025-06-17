@@ -17,7 +17,8 @@ class GameClient(Client):
         self.name = name
         self.set_player_name(name)
         self.storage = {}  # Track our own storage
-        self.items_on_hand = []  # Track items being carried
+        self.items_on_hand = []  # Track items being carried (wood, cotton only)
+        self.items_worn = {'sword': False, 'armor': False}  # Track equipped sword and armor
         self.entity_positions = {'w': [], 'c': [], 's': [], 'a': []}  # Track resource positions
         self.is_at_home = False
         self.win_condition = {'wood': 0, 'cotton': 0, 'fabric': 0, 'cotton_per_fabric': 2}  # Default win condition
@@ -158,21 +159,43 @@ class GameClient(Client):
         return player
 
     def collect_item(self, item_type: str):
-        """Collect an item and add it to items_on_hand."""
-        if len(self.items_on_hand) < 2:
-            self.items_on_hand.append(item_type)
-            log(f"Collected {item_type}, now carrying: {self.items_on_hand}", "[GameClient]")
-            return True
-        return False
+        """Collect an item - equipment goes to items_worn, resources to items_on_hand."""
+        if item_type == 's':  # Sword
+            if not self.items_worn['sword']:
+                self.items_worn['sword'] = True
+                log(f"Equipped sword", "[GameClient]")
+                return True
+            else:
+                log(f"Already wearing sword", "[GameClient]")
+                return False
+        elif item_type == 'a':  # Armor
+            if not self.items_worn['armor']:
+                self.items_worn['armor'] = True
+                log(f"Equipped armor", "[GameClient]")
+                return True
+            else:
+                log(f"Already wearing armor", "[GameClient]")
+                return False
+        else:  # Resources (wood, cotton, etc.)
+            if len(self.items_on_hand) < 2:
+                self.items_on_hand.append(item_type)
+                log(f"Collected {item_type}, now carrying: {self.items_on_hand}", "[GameClient]")
+                return True
+            else:
+                log(f"Backpack full, cannot collect {item_type}", "[GameClient]")
+                return False
 
     def store_items(self):
-        """Store all items in hand to storage."""
+        """Store all items in hand to storage. Equipment stays worn."""
         if self.is_at_home:
             for item in self.items_on_hand:
                 if item in self.storage:
                     self.storage[item] += 1
+                else:
+                    self.storage[item] = 1
             self.items_on_hand = []
-            log(f"Stored all items, current storage: {self.storage}", "[GameClient]")
+            log(f"Stored all backpack items, current storage: {self.storage}", "[GameClient]")
+            log(f"Equipment worn: {self.items_worn}", "[GameClient]")
             return True
         return False
 
@@ -181,12 +204,23 @@ class GameClient(Client):
         return self.storage.get(item_type, 0)
 
     def get_items_on_hand_count(self, item_type: str) -> int:
-        """Get the count of a specific item in hand."""
+        """Get the count of a specific item in backpack."""
         return self.items_on_hand.count(item_type)
 
+    def is_wearing(self, item_type: str) -> bool:
+        """Check if wearing specific equipment."""
+        if item_type == 's':
+            return self.items_worn['sword']
+        elif item_type == 'a':
+            return self.items_worn['armor']
+        return False
+
     def get_total_item_count(self, item_type: str) -> int:
-        """Get the total count of a specific item (storage + on hand)."""
-        return self.get_storage_count(item_type) + self.get_items_on_hand_count(item_type)
+        """Get the total count of a specific item (storage + on hand + worn)."""
+        total = self.get_storage_count(item_type) + self.get_items_on_hand_count(item_type)
+        if self.is_wearing(item_type):
+            total += 1
+        return total
 
     def move(self, direction: int):
         """Move in the specified direction and handle item collection."""
@@ -199,11 +233,37 @@ class GameClient(Client):
         if len(self.last_positions) > self.max_history:
             self.last_positions.pop(0)
         
-        # Check if we're at a resource and collect it
+        # Check if we're standing on equipment and collect it
         current_cell = player.grid[player.row][player.col]
-        if current_cell in ['w', 'c', 'r', 's', 'a']:
+        if current_cell in ['s', 'a']:  # Equipment that we stand on to collect
             if self.collect_item(current_cell):
                 log(f"Collected {current_cell} at position ({player.row}, {player.col})", "[GameClient]")
+                # Remove from grid and entity positions
+                player.grid[player.row][player.col] = 'g'
+                pos = (player.row, player.col)
+                if pos in self.entity_positions[current_cell]:
+                    self.entity_positions[current_cell].remove(pos)
+        
+        # Check adjacent cells for resources (wood, cotton) that we collect by standing next to
+        adjacent_positions = [
+            (player.row - 1, player.col),  # up
+            (player.row + 1, player.col),  # down
+            (player.row, player.col - 1),  # left
+            (player.row, player.col + 1)   # right
+        ]
+        
+        for adj_row, adj_col in adjacent_positions:
+            if (0 <= adj_row < len(player.grid) and 0 <= adj_col < len(player.grid[0])):
+                adj_cell = player.grid[adj_row][adj_col]
+                if adj_cell in ['w', 'c']:  # Resources we collect by standing adjacent
+                    if self.collect_item(adj_cell):
+                        log(f"Collected {adj_cell} from adjacent position ({adj_row}, {adj_col})", "[GameClient]")
+                        # Remove from grid and entity positions
+                        player.grid[adj_row][adj_col] = 'g'
+                        pos = (adj_row, adj_col)
+                        if pos in self.entity_positions[adj_cell]:
+                            self.entity_positions[adj_cell].remove(pos)
+                        break  # Only collect one resource per move
         
         # Update visited positions for exploration
         self.visited_positions.add((player.row, player.col))
@@ -215,8 +275,8 @@ class GameClient(Client):
         """Check if a cell is walkable, avoiding other players and obstacles."""
         cell_str = str(cell_value)
         
-        # Walkable tiles: ground, unexplored, sword, armor
-        if cell_str in ['g', '-1', 's', 'a']:
+        # Walkable tiles: ground, unexplored, sword, armor, wood, cotton
+        if cell_str in ['g', '-1', 's', 'a', 'w', 'c']:
             return True
             
         # Avoid other players (numbers 1-9)
@@ -225,10 +285,6 @@ class GameClient(Client):
             
         # Avoid obstacles like rocks
         if cell_str in ['r', '#']:
-            return False
-            
-        # Avoid resources that we can't walk on (wood, cotton)
-        if cell_str in ['w', 'c']:
             return False
             
         return False
@@ -518,6 +574,7 @@ class GameClient(Client):
             self.move(direction)
         else:
             log(f"No path found to position {position}", "[GameClient]")
+            self.explore()
 
     def go_home(self):
         log("Returning to home base", "[GameClient]")
@@ -527,7 +584,7 @@ class GameClient(Client):
         self.goto(home_position)
 
     def collect_wood(self):
-        """Collect wood by standing next to it. Only one wood at a time."""
+        """Collect wood by standing adjacent to it."""
         log("Attempting to collect wood", "[GameClient]")
         player = self.get_player()
         
@@ -555,26 +612,14 @@ class GameClient(Client):
         
         if len(self.entity_positions['w']) > 0:
             wood_position = self.entity_positions['w'][0]
-            # Check if we're adjacent to the wood
-            if abs(player.row - wood_position[0]) + abs(player.col - wood_position[1]) == 1:
-                # We're next to the wood, collect it
-                if self.collect_item('w'):
-                    log(f"Collected wood at {wood_position}, returning home to store", "[GameClient]")
-                    # Remove wood from entity positions
-                    self.entity_positions['w'].remove(wood_position)
-                    # Update the grid to reflect the collected wood
-                    player.grid[wood_position[0]][wood_position[1]] = 'g'
-                    # Immediately return home to store
-                    self.go_home()
-            else:
-                # Move towards the wood
-                log(f"Moving towards wood at {wood_position}", "[GameClient]")
-                self.goto(wood_position)
+            # Move towards the wood (automatic collection will happen when adjacent)
+            log(f"Moving towards wood at {wood_position}", "[GameClient]")
+            self.goto(wood_position)
         else:
             log("No wood positions known, need to explore more", "[GameClient]")
     
     def collect_cotton(self):
-        """Collect cotton by standing next to it. Only one cotton at a time."""
+        """Collect cotton by standing adjacent to it."""
         log("Attempting to collect cotton", "[GameClient]")
         player = self.get_player()
         
@@ -602,21 +647,9 @@ class GameClient(Client):
         
         if len(self.entity_positions['c']) > 0:
             cotton_position = self.entity_positions['c'][0]
-            # Check if we're adjacent to the cotton
-            if abs(player.row - cotton_position[0]) + abs(player.col - cotton_position[1]) == 1:
-                # We're next to the cotton, collect it
-                if self.collect_item('c'):
-                    log(f"Collected cotton at {cotton_position}, returning home to store", "[GameClient]")
-                    # Remove cotton from entity positions
-                    self.entity_positions['c'].remove(cotton_position)
-                    # Update the grid to reflect the collected cotton
-                    player.grid[cotton_position[0]][cotton_position[1]] = 'g'
-                    # Immediately return home to store
-                    self.go_home()
-            else:
-                # Move towards the cotton
-                log(f"Moving towards cotton at {cotton_position}", "[GameClient]")
-                self.goto(cotton_position)
+            # Move towards the cotton (automatic collection will happen when adjacent)
+            log(f"Moving towards cotton at {cotton_position}", "[GameClient]")
+            self.goto(cotton_position)
         else:
             log("No cotton positions known, need to explore more", "[GameClient]")
     
@@ -625,26 +658,16 @@ class GameClient(Client):
         log("Attempting to collect sword", "[GameClient]")
         player = self.get_player()
         
-        # Check if already carrying sword
-        if self.get_items_on_hand_count('s') > 0:
+        # Check if already wearing sword
+        if self.is_wearing('s'):
             log("Already equipped with sword", "[GameClient]")
             return
             
         if len(self.entity_positions['s']) > 0:
             sword_position = self.entity_positions['s'][0]
-            # Check if we're on the sword
-            if player.row == sword_position[0] and player.col == sword_position[1]:
-                # We're on the sword, collect it
-                if self.collect_item('s'):
-                    log(f"Equipped sword at {sword_position}", "[GameClient]")
-                    # Remove this specific sword position from entity positions
-                    self.entity_positions['s'].remove(sword_position)
-                    # Update the grid to reflect the collected sword
-                    player.grid[player.row][player.col] = 'g'
-            else:
-                # Move to the sword position
-                log(f"Moving to sword at {sword_position}", "[GameClient]")
-                self.goto(sword_position)
+            # Move to the sword position (automatic collection will happen when standing on it)
+            log(f"Moving to sword at {sword_position}", "[GameClient]")
+            self.goto(sword_position)
         else:
             log("No sword positions known", "[GameClient]")
 
@@ -653,26 +676,16 @@ class GameClient(Client):
         log("Attempting to collect armor", "[GameClient]")
         player = self.get_player()
         
-        # Check if already carrying armor
-        if self.get_items_on_hand_count('a') > 0:
+        # Check if already wearing armor
+        if self.is_wearing('a'):
             log("Already equipped with armor", "[GameClient]")
             return
             
         if len(self.entity_positions['a']) > 0:
             armor_position = self.entity_positions['a'][0]
-            # Check if we're on the armor
-            if player.row == armor_position[0] and player.col == armor_position[1]:
-                # We're on the armor, collect it
-                if self.collect_item('a'):
-                    log(f"Equipped armor at {armor_position}", "[GameClient]")
-                    # Remove this specific armor position from entity positions
-                    self.entity_positions['a'].remove(armor_position)
-                    # Update the grid to reflect the collected armor
-                    player.grid[player.row][player.col] = 'g'
-            else:
-                # Move to the armor position
-                log(f"Moving to armor at {armor_position}", "[GameClient]")
-                self.goto(armor_position)
+            # Move to the armor position (automatic collection will happen when standing on it)
+            log(f"Moving to armor at {armor_position}", "[GameClient]")
+            self.goto(armor_position)
         else:
             log("No armor positions known", "[GameClient]")
 

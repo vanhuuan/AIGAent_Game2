@@ -79,7 +79,7 @@ SYSTEM_PROMPTING = """You are an AI assistant helping a player in a 2D island-su
    - If neither wood nor cotton is found, continue exploring
    - If we have enough fabric in STORAGE, prioritize collecting wood
    - If we have enough wood in STORAGE, prioritize collecting cotton
-   - Collect sword/armor if not already equipped we don't have any, if we do have a sword or armor, we don't need to collect more
+   - Collect sword/armor if not already equipped and we don't have any, if we do have a sword or armor, we don't need to collect more
    - Explore if cotton and wood are not available
 
 2. Exploration Strategy:

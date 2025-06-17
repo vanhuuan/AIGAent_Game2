@@ -540,8 +540,8 @@ class GameWorkflow:
         }
         
         # Calculate equipment status (worn/equipped)
-        sword_equipped = client.get_items_on_hand_count('s') > 0
-        armor_equipped = client.get_items_on_hand_count('a') > 0
+        sword_equipped = client.is_wearing('s')
+        armor_equipped = client.is_wearing('a')
         
         prompt = SYSTEM_PROMPTING.format(
             row=player.row,
