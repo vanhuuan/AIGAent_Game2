@@ -699,12 +699,13 @@ class GameClient(Client):
 
         sword_position = self.entity_positions['s'][0]
         log(f"{sword_position[0]}:{sword_position[1]}-----{player.row}:{player.col}", "[GameClient]")
-        if player.row == sword_position[0] and player.col == sword_position[1]:
-            if self.collect_item(sword_position):
+        if abs(player.row) == sword_position[0] and abs(player.col) == sword_position[1]:
+            if self.collect_item('s'):
                 log(f"Collected {sword_position} at position ({player.row}, {player.col})", "[GameClient]")
                 # Remove from grid and entity positions
                 player.grid[player.row][player.col] = 'g'
                 pos = (player.row, player.col)
+                self.items_worn['sword'] = True
                 if pos in self.entity_positions[sword_position]:
                     self.entity_positions[sword_position].remove(pos)
             
@@ -727,8 +728,8 @@ class GameClient(Client):
             return
         armor_position = self.entity_positions['a'][0]
         log(f"{armor_position[0]}:{armor_position[1]}-----{player.row}:{player.col}", "[GameClient]")
-        if player.row == armor_position[0] and player.col == armor_position[1]:
-            if self.collect_item(armor_position):
+        if abs(player.row) == armor_position[0] and abs(player.col) == armor_position[1]:
+            if self.collect_item('a'):
                 log(f"Collected {armor_position} at position ({player.row}, {player.col})", "[GameClient]")
                 # Remove from grid and entity positions
                 player.grid[player.row][player.col] = 'g'

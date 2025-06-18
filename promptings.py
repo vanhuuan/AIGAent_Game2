@@ -85,8 +85,8 @@ SYSTEM_PROMPTING = """You are an AI assistant helping a player in a 2D island-su
    - Return home if carrying any resources in backpack
    - If neither wood nor cotton is found, continue exploring
    - If we have enough fabric in STORAGE, prioritize collecting wood
-   - If we have enough wood in STORAGE, prioritize collecting cotton
-   - Collect sword/armor if not already equipped
+   - Or if we have enough wood in STORAGE, prioritize collecting cotton
+   - Collect sword/armor if not already equipped and there is one in the visible area
    - Explore if cotton and wood are not available
 
 2. Exploration Strategy:
@@ -109,6 +109,7 @@ SYSTEM_PROMPTING = """You are an AI assistant helping a player in a 2D island-su
    - Equipment is independent of backpack capacity
    - Don't collect equipment if already equipped with that type
    - Equipment provides combat advantages
+   - !! Importance Only collect equipment if it in visible area
 
 5. Storage vs Backpack vs Equipment:
    - STORAGE: Items safely stored at home, count towards win condition

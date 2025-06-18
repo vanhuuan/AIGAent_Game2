@@ -542,12 +542,16 @@ class GameWorkflow:
                          client.get_storage_count('w') - 
                          client.get_items_on_hand_count('w'))
                          
-        cotton_needed = max(0, self.game_state.win_condition.get('cotton', 0) - 
+        fabric_to_cotton_ratio = self.game_state.win_condition.get('cotton_per_fabric', 2)
+        fa_h = client.get_storage_count('fa')
+        fa_needed = max(0, self.game_state.win_condition.get('fabric', 0) - fa_h)
+        cotton_needed = fa_needed * fabric_to_cotton_ratio
+        cotton_needed = max(0, cotton_needed - 
                            client.get_storage_count('c') - 
                            client.get_items_on_hand_count('c'))
         
         # Get fabric to cotton ratio from win condition
-        fabric_to_cotton_ratio = self.game_state.win_condition.get('cotton_per_fabric', 2)
+
 
         # Constraint checking: Can only carry 1 wood + 1 cotton at a time
         wood_on_hand = player.items_on_hand.count('w')
