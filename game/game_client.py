@@ -165,6 +165,7 @@ class GameClient(Client):
         if item_type == 's':  # Sword
             if not self.items_worn['sword']:
                 self.items_worn['sword'] = True
+                self.entity_positions['s'].clear()
                 log(f"Equipped sword", "[GameClient]")
                 return True
             else:
@@ -173,6 +174,7 @@ class GameClient(Client):
         elif item_type == 'a':  # Armor
             if not self.items_worn['armor']:
                 self.items_worn['armor'] = True
+                self.entity_positions['a'].clear()
                 log(f"Equipped armor", "[GameClient]")
                 return True
             else:
@@ -236,6 +238,18 @@ class GameClient(Client):
         self.last_positions.append(current_pos)
         if len(self.last_positions) > self.max_history:
             self.last_positions.pop(0)
+        
+        # Update entity positions from surrounding resources
+        log("Scanning surroundings for resources", "[GameClient]")
+        visible_range = 5
+        for i in range(max(0, player.row - visible_range), min(len(player.grid), player.row + visible_range + 1)):
+            for j in range(max(0, player.col - visible_range), min(len(player.grid[0]), player.col + visible_range + 1)):
+                cell = str(player.grid[i][j])
+                if cell in ['w', 'c', 's', 'a']:  # Found a resource
+                    pos = (i, j)
+                    if pos not in self.entity_positions[cell]:
+                        self.entity_positions[cell].append(pos)
+                        log(f"Added new {cell} resource at {pos} to known positions", "[GameClient]")
         
         # Check if we're standing on equipment and collect it
         current_cell = player.grid[player.row][player.col]
@@ -683,15 +697,16 @@ class GameClient(Client):
             log("Already equipped with sword", "[GameClient]")
             return
 
-        armor_position = self.entity_positions['s'][0]
-        if (player.row, player.col) == armor_position:
-            if self.collect_item(armor_position):
-                log(f"Collected {armor_position} at position ({player.row}, {player.col})", "[GameClient]")
+        sword_position = self.entity_positions['s'][0]
+        log(f"{sword_position[0]}:{sword_position[1]}-----{player.row}:{player.col}", "[GameClient]")
+        if player.row == sword_position[0] and player.col == sword_position[1]:
+            if self.collect_item(sword_position):
+                log(f"Collected {sword_position} at position ({player.row}, {player.col})", "[GameClient]")
                 # Remove from grid and entity positions
                 player.grid[player.row][player.col] = 'g'
                 pos = (player.row, player.col)
-                if pos in self.entity_positions[armor_position]:
-                    self.entity_positions[armor_position].remove(pos)
+                if pos in self.entity_positions[sword_position]:
+                    self.entity_positions[sword_position].remove(pos)
             
         if len(self.entity_positions['s']) > 0:
             sword_position = self.entity_positions['s'][0]
@@ -711,7 +726,8 @@ class GameClient(Client):
             log("Already equipped with armor", "[GameClient]")
             return
         armor_position = self.entity_positions['a'][0]
-        if (player.row, player.col) == armor_position:
+        log(f"{armor_position[0]}:{armor_position[1]}-----{player.row}:{player.col}", "[GameClient]")
+        if player.row == armor_position[0] and player.col == armor_position[1]:
             if self.collect_item(armor_position):
                 log(f"Collected {armor_position} at position ({player.row}, {player.col})", "[GameClient]")
                 # Remove from grid and entity positions

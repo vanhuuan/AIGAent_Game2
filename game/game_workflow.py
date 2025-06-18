@@ -606,6 +606,9 @@ class GameWorkflow:
         }
 
         items_on_hand_str = ", ".join(str(item) for item in player.items_on_hand)
+
+        if items_on_hand_str == "":
+            items_on_hand_str = "EMPTY"
         
         prompt = SYSTEM_PROMPTING.format(
             row=player.row,
