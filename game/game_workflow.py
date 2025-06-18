@@ -228,26 +228,79 @@ class Observation(BaseNode[GameState]):
             log(f'Current needs: {current_wood_need} wood, {current_cotton_need} cotton', "[Workflow]")
             log(f'Known resources: {len(position_of_woods)} wood, {len(position_of_cottons)} cotton, {len(position_of_sword)} swords, {len(position_of_armor)} armor', "[Workflow]")
 
+            # Constraint checking: Can only carry 1 wood + 1 cotton at a time
+            wood_on_hand = player.items_on_hand.count('w')
+            cotton_on_hand = player.items_on_hand.count('c')
+            
+            # If already carrying wood or cotton, must go home first
+            if wood_on_hand > 0 or cotton_on_hand > 0:
+                log(f"Player carrying resources (wood: {wood_on_hand}, cotton: {cotton_on_hand}) - must go home", "[GameWorkflow]")
+                return Action(observation_result=ObservationResult.GO_HOME)
+            
+            # Check equipment status to avoid collecting duplicates
+            sword_equipped = client.is_wearing('s')
+            armor_equipped = client.is_wearing('a')
+
+            # Check if we're in exploration mode and if anything new was found
+            if self.observation_result == 'EXPLORE':
+                # Check if any new resources were found in the visible area
+                visible_range = 5
+                new_resources_found = False
+                for i in range(max(0, player.row - visible_range), min(len(player.grid), player.row + visible_range + 1)):
+                    for j in range(max(0, player.col - visible_range), min(len(player.grid[0]), player.col + visible_range + 1)):
+                        cell = str(player.grid[i][j])
+                        if cell in ['w', 'c', 's', 'a']:
+                            pos = (i, j)
+                            if cell == 'w' and pos not in position_of_woods:
+                                new_resources_found = True
+                                break
+                            elif cell == 'c' and pos not in position_of_cottons:
+                                new_resources_found = True
+                                break
+                            elif cell == 's' and pos not in position_of_sword:
+                                new_resources_found = True
+                                break
+                            elif cell == 'a' and pos not in position_of_armor:
+                                new_resources_found = True
+                                break
+                    if new_resources_found:
+                        break
+
+                # If no new resources found and we're in exploration mode, continue exploring
+                if not new_resources_found:
+                    log("No new resources found, continuing exploration", "[GameWorkflow]")
+                    return Action(observation_result=ObservationResult.EXPLORE)
+
             # Decision making with priority order
-            # Prioritize collecting sword
-            if len(position_of_sword) > 0:
+            # Prioritize collecting sword if not already equipped
+            if len(position_of_sword) > 0 and not sword_equipped:
                 log("Decision: Collect sword (highest priority)", "[Workflow]")
                 return Action(observation_result=ObservationResult.COLLECT_SWORD)
             
-            # Prioritize collecting armor
-            if len(position_of_armor) > 0:
+            # Prioritize collecting armor if not already equipped
+            if len(position_of_armor) > 0 and not armor_equipped:
                 log("Decision: Collect armor (high priority)", "[Workflow]")
                 return Action(observation_result=ObservationResult.COLLECT_ARMOR) 
             
-            # Prioritize collecting wood
-            if current_wood_need > 0 and len(position_of_woods) > 0:
-                log("Decision: Collect wood (needed for win condition)", "[Workflow]")
+            # Prioritize collecting wood if needed and not already carrying wood
+            if current_wood_need > 0 and len(position_of_woods) > 0 and wood_on_hand == 0:
+                log("Decision: Collect wood (needed for win condition, not carrying wood)", "[Workflow]")
                 return Action(observation_result=ObservationResult.GET_MORE_WOOD)
             
-            # Prioritize collecting cotton
-            if current_cotton_need > 0 and len(position_of_cottons) > 0:
-                log("Decision: Collect cotton (needed for win condition)", "[Workflow]")
+            # Prioritize collecting cotton if needed and not already carrying cotton
+            if current_cotton_need > 0 and len(position_of_cottons) > 0 and cotton_on_hand == 0:
+                log("Decision: Collect cotton (needed for win condition, not carrying cotton)", "[Workflow]")
                 return Action(observation_result=ObservationResult.GET_MORE_COTTON)
+            
+            # Log constraint violations to help with debugging
+            if current_wood_need > 0 and len(position_of_woods) > 0 and wood_on_hand > 0:
+                log("Cannot collect wood - already carrying wood (constraint: max 1 wood)", "[Workflow]")
+            if current_cotton_need > 0 and len(position_of_cottons) > 0 and cotton_on_hand > 0:
+                log("Cannot collect cotton - already carrying cotton (constraint: max 1 cotton)", "[Workflow]")
+            if len(position_of_sword) > 0 and sword_equipped:
+                log("Cannot collect sword - already equipped", "[Workflow]")
+            if len(position_of_armor) > 0 and armor_equipped:
+                log("Cannot collect armor - already equipped", "[Workflow]")
             
         # Default action is to explore
         log("Decision: Continue exploring (default action)", "[Workflow]")
@@ -496,6 +549,19 @@ class GameWorkflow:
         # Get fabric to cotton ratio from win condition
         fabric_to_cotton_ratio = self.game_state.win_condition.get('cotton_per_fabric', 2)
 
+        # Constraint checking: Can only carry 1 wood + 1 cotton at a time
+        wood_on_hand = player.items_on_hand.count('w')
+        cotton_on_hand = player.items_on_hand.count('c')
+        
+        # If already carrying wood or cotton, must go home first
+        if wood_on_hand > 0 or cotton_on_hand > 0:
+            log(f"Player carrying resources (wood: {wood_on_hand}, cotton: {cotton_on_hand}) - must go home", "[GameWorkflow]")
+            return GameAction.GO_HOME
+        
+        # Check equipment status to avoid collecting duplicates
+        sword_equipped = client.is_wearing('s')
+        armor_equipped = client.is_wearing('a')
+
         # Check if we're in exploration mode and if anything new was found
         if self.last_action == 'EXPLORE':
             # Check if any new resources were found in the visible area
@@ -538,10 +604,8 @@ class GameWorkflow:
             's': client.get_storage_count('s'),
             'a': client.get_storage_count('a')
         }
-        
-        # Calculate equipment status (worn/equipped)
-        sword_equipped = client.is_wearing('s')
-        armor_equipped = client.is_wearing('a')
+
+        items_on_hand_str = ", ".join(str(item) for item in player.items_on_hand)
         
         prompt = SYSTEM_PROMPTING.format(
             row=player.row,
@@ -549,7 +613,7 @@ class GameWorkflow:
             home_row=player.home_row,
             home_col=player.home_col,
             storage=storage_info,
-            items_on_hand=client.items_on_hand,
+            items_on_hand=items_on_hand_str,
             wood_needed=wood_needed,
             cotton_needed=cotton_needed,
             wood_positions=entity_positions.get('w', []),
@@ -655,13 +719,20 @@ class GameWorkflow:
             log(f"Player carrying items: {player.items_on_hand}, going home", "[GameWorkflow]")
             return GameAction.GO_HOME
         
-        # Priority 1: Collect sword if available
-        if entity_positions.get('s'):
+        # Check current items on hand for constraint enforcement
+        wood_on_hand = player.items_on_hand.count('w')
+        cotton_on_hand = player.items_on_hand.count('c')
+        
+        # Priority 1: Collect sword if available and not already equipped
+        client = self.game_state.client
+        sword_equipped = client.is_wearing('s')
+        if entity_positions.get('s') and not sword_equipped:
             log("Found sword - prioritizing sword collection", "[GameWorkflow]")
             return GameAction.COLLECT_SWORD
             
-        # Priority 2: Collect armor if available
-        if entity_positions.get('a'):
+        # Priority 2: Collect armor if available and not already equipped
+        armor_equipped = client.is_wearing('a')
+        if entity_positions.get('a') and not armor_equipped:
             log("Found armor - prioritizing armor collection", "[GameWorkflow]")
             return GameAction.COLLECT_ARMOR
             
@@ -674,15 +745,21 @@ class GameWorkflow:
                            player.store.count('c') - 
                            player.items_on_hand.count('c'))
         
-        # Priority 3: Collect wood if needed and available
-        if wood_needed > 0 and entity_positions.get('w'):
-            log("Prioritizing wood collection", "[GameWorkflow]")
+        # Priority 3: Collect wood if needed, available, and not already carrying wood
+        if wood_needed > 0 and entity_positions.get('w') and wood_on_hand == 0:
+            log("Prioritizing wood collection (not carrying wood)", "[GameWorkflow]")
             return GameAction.COLLECT_WOOD
             
-        # Priority 4: Collect cotton if needed and available
-        if cotton_needed > 0 and entity_positions.get('c'):
-            log("Prioritizing cotton collection", "[GameWorkflow]")
+        # Priority 4: Collect cotton if needed, available, and not already carrying cotton
+        if cotton_needed > 0 and entity_positions.get('c') and cotton_on_hand == 0:
+            log("Prioritizing cotton collection (not carrying cotton)", "[GameWorkflow]")
             return GameAction.COLLECT_COTTON
+            
+        # If already carrying resources, log the constraint
+        if wood_on_hand > 0 and entity_positions.get('w'):
+            log("Cannot collect more wood - already carrying wood (constraint: max 1 wood)", "[GameWorkflow]")
+        if cotton_on_hand > 0 and entity_positions.get('c'):
+            log("Cannot collect more cotton - already carrying cotton (constraint: max 1 cotton)", "[GameWorkflow]")
             
         # Default: Explore to find more resources
         log("No specific resource needs, continuing exploration", "[GameWorkflow]")
